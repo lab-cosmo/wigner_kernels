@@ -19,36 +19,36 @@ def convert_to_torch(coefficients):
 class Powerspectrum(torch.nn.Module):
     def __init__(self, clebsch, lambda_max = None):
         super(Powerspectrum, self).__init__()
-        self.first = ClebschCombining(clebsch, 0)       
-            
+        self.first = ClebschCombining(clebsch, 0)
+
     def forward(self, X):
-        ps_invariants = self.first(X, X)       
+        ps_invariants = self.first(X, X)
         return ps_invariants
-    
+
 class Bispectrum(torch.nn.Module):
     def __init__(self, clebsch, lambda_max):
         super(Bispectrum, self).__init__()
         self.first = ClebschCombining(clebsch, lambda_max)
         self.second = ClebschCombining(clebsch, 0)
-            
+
     def forward(self, X):
         ps_covariants = self.first(X, X)
         bs_invariants = self.second(ps_covariants, X)
         return bs_invariants
-    
+
 class Trispectrum(torch.nn.Module):
     def __init__(self, clebsch, lambda_max):
         super(Trispectrum, self).__init__()
         self.first = ClebschCombining(clebsch, lambda_max)
         self.second = ClebschCombining(clebsch, lambda_max)
         self.third = ClebschCombining(clebsch, 0)
-            
+
     def forward(self, X):
         ps_covariants = self.first(X, X)
         bs_covariants = self.second(ps_covariants, X)
         ts_invariants = self.third(bs_covariants, X)
         return ts_invariants
-    
+
 def get_torch_invariants(structures, Model, N_MAX, L_MAX):
     HYPERS = {
         'interaction_cutoff': 6.3,
@@ -60,19 +60,19 @@ def get_torch_invariants(structures, Model, N_MAX, L_MAX):
         'radial_basis': 'GTO'
     }
 
- 
+
     all_species = get_all_species(structures)
 
     coefficients = get_spherical_expansion(structures, HYPERS,
                                                  all_species, show_progress = False)
-    
-    
+
+
     for key in coefficients.keys():
         coefficients[key] = convert_to_torch(coefficients[key])
-    
+
     clebsch = nice.clebsch_gordan.ClebschGordan(L_MAX)
     model = Model(clebsch.precomputed_, L_MAX)
-    
+
     result = {}
     for key in coefficients.keys():
         result[key] = np.array(model(coefficients[key])[0].squeeze())
@@ -83,50 +83,41 @@ def single_test_invariance(structures, Model, N_MAX, L_MAX, epsilon, verbose = F
     rotated_structures = copy.deepcopy(structures)
     for structure in rotated_structures:
         structure.euler_rotate(np.random.rand() * 360, np.random.rand() * 360, np.random.rand() * 360)
-    
+
     second = get_torch_invariants(rotated_structures, Model, N_MAX, L_MAX)
-    
-    for key in first.keys():        
+
+    for key in first.keys():
         total = np.sum(np.abs(first[key]))
         diff = np.sum(np.abs(first[key] - second[key]))
         if verbose:
             print("total: ", total, "diff: ", diff)
         assert (diff <= total * epsilon)
-            
-def test_powerspectrum_invariance(epsilon = 1e-5, verbose = False):
-    if ('methane.extxyz' not in os.listdir('.')):
-        os.system('wget "https://archive.materialscloud.org/record/file?file_id=b612d8e3-58af-4374-96ba-b3551ac5d2f4&filename=methane.extxyz.gz&record_id=528" -O methane.extxyz.gz')
-        os.system("gunzip -k methane.extxyz.gz")
 
-    structures = ase.io.read('methane.extxyz', index='0:20')
+def test_powerspectrum_invariance(epsilon = 1e-5, verbose = False):
+
+    structures = ase.io.read('../structures/methane.extxyz', index='0:20')
     N_MAX = 5
     L_MAX = 5
     N_TESTS = 10
     for _ in range(N_TESTS):
         single_test_invariance(structures, Powerspectrum, N_MAX, L_MAX, epsilon, verbose = verbose)
-        
-        
-def test_bispectrum_invariance(epsilon = 1e-5, verbose = False):
-    if ('methane.extxyz' not in os.listdir('.')):
-        os.system('wget "https://archive.materialscloud.org/record/file?file_id=b612d8e3-58af-4374-96ba-b3551ac5d2f4&filename=methane.extxyz.gz&record_id=528" -O methane.extxyz.gz')
-        os.system("gunzip -k methane.extxyz.gz")
 
-    structures = ase.io.read('methane.extxyz', index='0:20')
+
+def test_bispectrum_invariance(epsilon = 1e-5, verbose = False):
+
+    structures = ase.io.read('../structures/methane.extxyz', index='0:20')
     N_MAX = 3
     L_MAX = 3
     N_TESTS = 10
     for _ in range(N_TESTS):
         single_test_invariance(structures, Bispectrum, N_MAX, L_MAX, epsilon, verbose = verbose)
-        
-      
-def test_trispectrum_invariance(epsilon = 1e-5, verbose = False):
-    if ('methane.extxyz' not in os.listdir('.')):
-        os.system('wget "https://archive.materialscloud.org/record/file?file_id=b612d8e3-58af-4374-96ba-b3551ac5d2f4&filename=methane.extxyz.gz&record_id=528" -O methane.extxyz.gz')
-        os.system("gunzip -k methane.extxyz.gz")
 
-    structures = ase.io.read('methane.extxyz', index='0:5')
+
+def test_trispectrum_invariance(epsilon = 1e-5, verbose = False):
+
+    structures = ase.io.read('../structures/methane.extxyz', index='0:5')
     N_MAX = 3
     L_MAX = 3
     N_TESTS = 10
     for _ in range(N_TESTS):
-        single_test_invariance(structures, Trispectrum, N_MAX, L_MAX, epsilon, verbose = verbose)    
+        single_test_invariance(structures, Trispectrum, N_MAX, L_MAX, epsilon, verbose = verbose)
