@@ -3,6 +3,24 @@ import torch.nn
 import numpy as np
 
 
+class Accumulator(torch.nn.Module):
+    def __init__(self): 
+        super(Accumulator, self).__init__()
+        
+    def forward(self, features, structural_indices):
+        n_structures = torch.max(structural_indices) + 1
+        shapes = []
+        for el in features:
+            now = list(el.shape)
+            now[0] = n_structures
+            shapes.append(now)
+       
+        result = [torch.zeros(shape, dtype = torch.float32) for shape in shapes]
+        for i in range(len(features)):
+            result[i].index_add_(0, structural_indices, features[i])
+        return result       
+        
+        
 class CentralSplitter(torch.nn.Module):
     def __init__(self): 
         super(CentralSplitter, self).__init__()

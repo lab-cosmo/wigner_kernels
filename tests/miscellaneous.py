@@ -6,6 +6,33 @@ import ase.io
 import numpy as np
 from nice.utilities import *
 
+
+def test_targets_accumulator(epsilon = 1e-6):
+    structures = ase.io.read('methane.extxyz', index='0:50')
+    structural_indices = torch.LongTensor(get_structural_indices(structures))
+    #print(len(structural_indices))
+    atomic_contributions = torch.tensor(np.random.randn(len(structural_indices)), dtype = torch.float32)
+    block = Accumulator()
+    structural_targets = block([atomic_contributions], structural_indices)
+    #print(structural_targets[0].shape)
+
+    def accumulate_loops(atomic_contributions, structural_indices):
+        atomic_contributions = atomic_contributions.numpy()
+        structural_indices = structural_indices.numpy()
+
+        n_structures = np.max(structural_indices) + 1
+        result = np.zeros([n_structures])
+        for i in range(len(structural_indices)):
+            result[structural_indices[i]] += atomic_contributions[i]
+
+        return result
+    structural_targets_loops = accumulate_loops(atomic_contributions, structural_indices)
+    delta = structural_targets[0].numpy() - structural_targets_loops
+    #print(np.sum(np.abs(delta)), np.sum(np.abs(structural_targets_loops)))
+    assert np.sum(np.abs(delta)) < epsilon * np.sum(np.abs(structural_targets_loops))
+
+
+
 def test_central_splitter_uniter(epsilon = 1e-12):  
     
     LAMBDA_MAX = 5
