@@ -1,3 +1,5 @@
+import numpy as np
+
 def get_central_species(structures):
     result = []
     for structure in structures:

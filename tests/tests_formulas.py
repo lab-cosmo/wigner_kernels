@@ -1,10 +1,9 @@
 import sys
-sys.path.append("..")
+sys.path.append("../code")
 from code_pytorch import *
 from nice.blocks import *
 from nice.utilities import *
 import numpy as np
-
 
 def convert_to_complex(values):
     result = []

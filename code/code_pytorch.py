@@ -2,6 +2,52 @@ import torch
 import torch.nn
 import numpy as np
 
+
+class CentralSplitter(torch.nn.Module):
+    def __init__(self): 
+        super(CentralSplitter, self).__init__()
+        
+    def forward(self, features, central_species):
+        all_species = np.unique(central_species)
+        result = {}
+        for specie in all_species:
+            result[specie] = []
+        for feature in features:
+            for specie in all_species:
+                mask_now = (central_species == specie)
+                result[specie].append(feature[mask_now])
+        return result
+        
+class CentralUniter(torch.nn.Module):
+    def __init__(self):
+        super(CentralUniter, self).__init__()
+        
+    def forward(self, features, central_species):
+        all_species = np.unique(central_species)
+        key = all_species[0]
+        
+        shapes = []
+        for el in features[key]:
+            now = list(el.shape)
+            now[0] = 0
+            shapes.append(now)
+            
+        for key in all_species:
+            for i in range(len(features[key])):
+                num = features[key][i].shape[0]
+                shapes[i][0] += num
+        #print(shapes)
+        
+        result = [torch.empty(shape, dtype = torch.float32) for shape in shapes]
+        
+        for key in features.keys():
+            for i in range(len(features[key])):
+                mask = (key == central_species)
+                result[i][mask] = features[key][i]
+            
+        return result
+    
+    
 class ClebschCombiningSingleUnrolledOld(torch.nn.Module):
     def __init__(self, clebsch, lambd): 
         super(ClebschCombiningSingleUnrolledOld, self).__init__()
