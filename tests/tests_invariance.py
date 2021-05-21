@@ -12,7 +12,7 @@ def convert_to_torch(coefficients):
     result = {}
     for lambd in range(coefficients.shape[2]):
         result[lambd] = torch.FloatTensor(coefficients[:, :, lambd, : 2 * lambd + 1])
-        result[lambd] = result[lambd].transpose(0, -1)
+        #result[lambd] = result[lambd].transpose(0, -1)
         #print("shape: ", lambd, result[lambd].shape)
     return result
 

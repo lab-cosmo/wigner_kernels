@@ -1,23 +1,45 @@
 import torch
-import torch.nn
+import torch.nn as nn
 import numpy as np
 
-
+class Atomistic(torch.nn.Module):
+    def __init__(self, models):
+        super(Atomistic, self).__init__()
+        self.models = nn.ModuleDict(models)
+        self.splitter = CentralSplitter()
+        self.uniter = CentralUniter()
+        self.accumulator = Accumulator()
+        
+    def forward(self, X, central_species, structural_indices):
+        splitted = self.splitter(X, central_species)
+        result = {}
+        for key in splitted.keys():            
+            result[key] = self.models[str(key)](splitted[key])
+        result = self.uniter(result, central_species)
+        result = self.accumulator(result, structural_indices)
+        return result
+    
 class Accumulator(torch.nn.Module):
     def __init__(self): 
         super(Accumulator, self).__init__()
         
     def forward(self, features, structural_indices):
-        n_structures = torch.max(structural_indices) + 1
-        shapes = []
-        for el in features:
-            now = list(el.shape)
+        n_structures = np.max(structural_indices) + 1
+        shapes = {}
+        device = None
+        
+        for key, value in features.items():
+            now = list(value.shape)
             now[0] = n_structures
-            shapes.append(now)
+            shapes[key] = now
+            device = value.device            
        
-        result = [torch.zeros(shape, dtype = torch.float32) for shape in shapes]
-        for i in range(len(features)):
-            result[i].index_add_(0, structural_indices, features[i])
+        result = {key : torch.zeros(shape, dtype = torch.float32).to(device) for key, shape in shapes.items()}
+       
+        structural_indices = torch.LongTensor(structural_indices).to(device)
+        
+        for key, value in features.items():
+            result[key].index_add_(0, structural_indices, features[key])       
         return result       
         
         
@@ -29,11 +51,12 @@ class CentralSplitter(torch.nn.Module):
         all_species = np.unique(central_species)
         result = {}
         for specie in all_species:
-            result[specie] = []
-        for feature in features:
+            result[specie] = {}
+            
+        for key, value in features.items():
             for specie in all_species:
                 mask_now = (central_species == specie)
-                result[specie].append(feature[mask_now])
+                result[specie][key] = value[mask_now]       
         return result
         
 class CentralUniter(torch.nn.Module):
@@ -42,31 +65,33 @@ class CentralUniter(torch.nn.Module):
         
     def forward(self, features, central_species):
         all_species = np.unique(central_species)
-        key = all_species[0]
+        specie = all_species[0]
         
-        shapes = []
-        for el in features[key]:
-            now = list(el.shape)
+        shapes = {}
+        for key, value in features[specie].items():
+            now = list(value.shape)
             now[0] = 0
-            shapes.append(now)
+            shapes[key] = now       
             
-        for key in all_species:
-            for i in range(len(features[key])):
-                num = features[key][i].shape[0]
-                shapes[i][0] += num
-        #print(shapes)
+        device = None
+        for specie in all_species:
+            for key, value in features[specie].items():
+                num = features[specie][key].shape[0]
+                device = features[specie][key].device
+                shapes[key][0] += num
+                
+          
+        result = {key : torch.empty(shape, dtype = torch.float32).to(device) for key, shape in shapes.items()}        
         
-        result = [torch.empty(shape, dtype = torch.float32) for shape in shapes]
-        
-        for key in features.keys():
-            for i in range(len(features[key])):
-                mask = (key == central_species)
-                result[i][mask] = features[key][i]
+        for specie in features.keys():
+            for key, value in features[specie].items():
+                mask = (specie == central_species)
+                result[key][mask] = features[specie][key]
             
         return result
     
     
-class ClebschCombiningSingleUnrolledOld(torch.nn.Module):
+'''class ClebschCombiningSingleUnrolledOld(torch.nn.Module):
     def __init__(self, clebsch, lambd): 
         super(ClebschCombiningSingleUnrolledOld, self).__init__()
         self.register_buffer('clebsch', torch.FloatTensor(clebsch))        
@@ -100,7 +125,7 @@ class ClebschCombiningSingleUnrolledOld(torch.nn.Module):
             result = torch.zeros([mult.shape[0], mult.shape[1], 2 * self.lambd + 1])
         
         result = result.index_add_(2, self.index, mult[:, :, self.mask])        
-        return result
+        return result'''
     
 class ClebschCombiningSingleUnrolled(torch.nn.Module):
     def __init__(self, clebsch, lambd): 
@@ -126,6 +151,8 @@ class ClebschCombiningSingleUnrolled(torch.nn.Module):
     
     def forward(self, X1, X2):
         #print("here:", X1.shape, X2.shape)
+        X1 = X1.transpose(0, 2).contiguous()
+        X2 = X2.transpose(0, 2).contiguous()
         if self.index.is_cuda:
             result = torch.zeros([2 * self.lambd + 1, X1.shape[1], X2.shape[2]], device = 'cuda')
         else:
@@ -195,7 +222,7 @@ class ClebschCombiningSingleUnrolled(torch.nn.Module):
             else:
                 #print(real_now)
                 result[self.lambd] = real_now
-                
+        result = result.transpose(0, 2)      
         return result
     
         '''for m1 in range(self.clebsch.shape[0]):
