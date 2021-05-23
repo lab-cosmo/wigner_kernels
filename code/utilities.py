@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 
 def get_central_species(structures):
     result = []
@@ -16,7 +17,8 @@ def get_structural_indices(structures):
         now += 1
     return np.array(result)
 
-def iterate_minibatches(atomic_data, structural_data, structural_indices, batch_size):
+def iterate_minibatches(atomic_data, structural_data, structural_indices,
+                        batch_size, target_device):
     beginnings = []
     n_structures = np.max(structural_indices) + 1
     
@@ -41,11 +43,15 @@ def iterate_minibatches(atomic_data, structural_data, structural_indices, batch_
         atomic_batch = {}
         for key, el in atomic_data.items():
             atomic_batch[key] = el[beginnings[start_struc] : beginnings[next_struc]]
+            if torch.is_tensor(atomic_batch[key]):
+                atomic_batch[key] = atomic_batch[key].to(target_device)
        
             
         structural_batch = {}
         for key, el in structural_data.items():
             structural_batch[key] = el[start_struc : next_struc]
+            if torch.is_tensor(structural_batch[key]):
+                structural_batch[key] = structural_batch[key].to(target_device)
         
         current_structural_indices = structural_indices[beginnings[start_struc] : beginnings[next_struc]]
         current_structural_indices = current_structural_indices - np.min(current_structural_indices)

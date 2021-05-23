@@ -2,6 +2,23 @@ import torch
 import torch.nn as nn
 import numpy as np
 
+def grad_dict(outputs, inputs, **kwargs):
+    outputs = list(outputs.items())
+    inputs = list(inputs.items())
+    
+    outputs_tensors = [element[1] for element in outputs]
+    inputs_tensors = [element[1] for element in inputs]
+    outputs_ones = [torch.ones_like(element) for element in outputs_tensors]
+    
+    derivatives = torch.autograd.grad(outputs = outputs_tensors,
+                                     inputs = inputs_tensors,
+                                     grad_outputs = outputs_ones,
+                                     **kwargs)
+    result = {}
+    for i in range(len(derivatives)):
+        result[inputs[i][0]] = derivatives[i]
+    return result
+
 class Atomistic(torch.nn.Module):
     def __init__(self, models):
         super(Atomistic, self).__init__()
@@ -19,6 +36,37 @@ class Atomistic(torch.nn.Module):
         result = self.accumulator(result, structural_indices)
         return result
     
+    def get_forces(self, X, central_species, structural_indices,
+                   X_der, central_indices, derivative_indices):
+        key = list(X.keys())[0]
+        device = X[key].device
+        for key in X.keys():
+            if not X[key].requires_grad:
+                raise ValueError("input should require grad for calculation of forces")
+        predictions = self.forward(X, central_species, structural_indices)
+        derivatives = grad_dict(predictions, X)
+        
+        derivatives_aligned = {}
+        for key in derivatives.keys():
+            derivatives_aligned[key] = torch.index_select(derivatives[key],
+                                                  0, central_indices)
+        contributions = {}        
+        for key in derivatives.keys():
+            #print("derivatives_aligned shape:", torch.unsqueeze(derivatives_aligned[key], 1).shape)
+            #print("X_der shape: ", X_der[key].shape)
+            dims_sum = list(range(len(X_der[key].shape)))[2:]
+            #print("dims_sum: ", dims_sum)
+            contributions[key] = -torch.sum(torch.unsqueeze(derivatives_aligned[key], 1)\
+                                   * X_der[key], dim = dims_sum)
+        forces_predictions = torch.zeros([structural_indices.shape[0], 3],
+                                      device = device, dtype = torch.get_default_dtype())
+        
+        for key in contributions.keys():            
+            forces_predictions.index_add_(0, derivative_indices, contributions[key])
+            
+        return forces_predictions
+    
+    
 class Accumulator(torch.nn.Module):
     def __init__(self): 
         super(Accumulator, self).__init__()
@@ -34,9 +82,9 @@ class Accumulator(torch.nn.Module):
             shapes[key] = now
             device = value.device            
        
-        result = {key : torch.zeros(shape, dtype = torch.float32).to(device) for key, shape in shapes.items()}
+        result = {key : torch.zeros(shape, dtype = torch.get_default_dtype()).to(device) for key, shape in shapes.items()}
        
-        structural_indices = torch.LongTensor(structural_indices).to(device)
+        structural_indices = torch.IntTensor(structural_indices).to(device)
         
         for key, value in features.items():
             result[key].index_add_(0, structural_indices, features[key])       
@@ -81,7 +129,7 @@ class CentralUniter(torch.nn.Module):
                 shapes[key][0] += num
                 
           
-        result = {key : torch.empty(shape, dtype = torch.float32).to(device) for key, shape in shapes.items()}        
+        result = {key : torch.empty(shape, dtype = torch.get_default_dtype()).to(device) for key, shape in shapes.items()}        
         
         for specie in features.keys():
             for key, value in features[specie].items():
@@ -90,47 +138,12 @@ class CentralUniter(torch.nn.Module):
             
         return result
     
-    
-'''class ClebschCombiningSingleUnrolledOld(torch.nn.Module):
-    def __init__(self, clebsch, lambd): 
-        super(ClebschCombiningSingleUnrolledOld, self).__init__()
-        self.register_buffer('clebsch', torch.FloatTensor(clebsch))        
-        self.lambd = lambd
-        
-        index = []
-        mask = []
-        for m1 in range(clebsch.shape[0]):
-            for m2 in range(clebsch.shape[1]):
-                if (m1+ m2 < (2 * lambd + 1)):
-                    index.append(m1 + m2)
-                    mask.append(True)
-                else:
-                    mask.append(False)
-        self.register_buffer('mask', torch.tensor(mask, dtype = torch.bool))
-        self.register_buffer('index', torch.LongTensor(index))        
-        
-    def forward(self, X1, X2):
-       
-        #print("clebsch grad:", self.clebsch.requires_grad, self.mask.requires_grad, self.index.requires_grad)
-        X1 = X1[:, :, :, None]
-        X2 = X2[:, :, None, :]
-        #print(self.l1, self.l2, X1.shape, X2.shape)
-        mult = X1 * X2
-        mult = mult * self.clebsch
-       
-        mult = mult.reshape(mult.shape[0], mult.shape[1], -1)
-        if self.index.is_cuda:
-            result = torch.zeros([mult.shape[0], mult.shape[1], 2 * self.lambd + 1], device = 'cuda')
-        else:
-            result = torch.zeros([mult.shape[0], mult.shape[1], 2 * self.lambd + 1])
-        
-        result = result.index_add_(2, self.index, mult[:, :, self.mask])        
-        return result'''
+
     
 class ClebschCombiningSingleUnrolled(torch.nn.Module):
     def __init__(self, clebsch, lambd): 
         super(ClebschCombiningSingleUnrolled, self).__init__()
-        self.register_buffer('clebsch', torch.FloatTensor(clebsch))        
+        self.register_buffer('clebsch', torch.from_numpy(clebsch).type(torch.get_default_dtype()))        
         self.lambd = lambd
         self.l1 = (self.clebsch.shape[0] - 1) // 2
         self.l2 = (self.clebsch.shape[1] - 1) // 2
@@ -144,7 +157,7 @@ class ClebschCombiningSingleUnrolled(torch.nn.Module):
                 else:
                     mask.append(False)
         self.register_buffer('mask', torch.tensor(mask, dtype = torch.bool))
-        self.register_buffer('index', torch.LongTensor(index))
+        self.register_buffer('index', torch.IntTensor(index))
         self.sqrt_2 = np.sqrt(2.0)
         self.sqrt_2_inv = 1.0 / np.sqrt(2.0)
         
@@ -259,13 +272,13 @@ def get_each_with_each_task(first_size, second_size):
 class ClebschCombiningSingle(torch.nn.Module):
     def __init__(self, clebsch, lambd, task = None):
         super(ClebschCombiningSingle, self).__init__()
-        self.register_buffer('clebsch', torch.FloatTensor(clebsch))
+        self.register_buffer('clebsch', torch.from_numpy(clebsch).type(torch.get_default_dtype()))
         self.lambd = lambd
         self.unrolled = ClebschCombiningSingleUnrolled(clebsch, lambd)
         if task is None:
             self.task = None
         else:
-            self.register_buffer('task', torch.LongTensor(task))
+            self.register_buffer('task', torch.IntTensor(task))
             
     def forward(self, X1, X2):
         if self.task is None:
@@ -279,8 +292,8 @@ class ClebschCombiningSingle(torch.nn.Module):
             second = second.reshape(second.shape[0], -1, second.shape[3])            
             return self.unrolled(first, second)
         else:
-            first = torch.index_select(first, 1, torch.LongTensor(self.task[:, 0]))
-            second = torch.index_select(second, 1, torch.LongTensor(self.task[:, 1]))
+            first = torch.index_select(first, 1, torch.IntTensor(self.task[:, 0]))
+            second = torch.index_select(second, 1, torch.IntTensor(self.task[:, 1]))
             return self.unrolled(first, second)
         
            
@@ -288,7 +301,7 @@ class ClebschCombiningSingle(torch.nn.Module):
 class ClebschCombining(torch.nn.Module):
     def __init__(self, clebsch, lambd_max):
         super(ClebschCombining, self).__init__()
-        self.register_buffer('clebsch', torch.FloatTensor(clebsch))  
+        self.register_buffer('clebsch', torch.from_numpy(clebsch).type(torch.get_default_dtype()))  
         self.lambd_max = lambd_max
          
         self.single_combiners = torch.nn.ModuleDict()
