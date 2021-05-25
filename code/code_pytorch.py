@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
+from utilities import get_central_species, get_structural_indices
 
 def grad_dict(outputs, inputs, **kwargs):
     outputs = list(outputs.items())
@@ -27,7 +28,10 @@ class Atomistic(torch.nn.Module):
         self.uniter = CentralUniter()
         self.accumulator = Accumulator()
         
-    def forward(self, X, central_species, structural_indices):
+    def forward(self, X, structures):
+        central_species = get_central_species(structures)
+        structural_indices = get_structural_indices(structures)
+        
         splitted = self.splitter(X, central_species)
         result = {}
         for key in splitted.keys():            
@@ -36,20 +40,32 @@ class Atomistic(torch.nn.Module):
         result = self.accumulator(result, structural_indices)
         return result
     
-    def get_forces(self, X, central_species, structural_indices,
+    def get_forces(self, X, structures,
                    X_der, central_indices, derivative_indices):
         key = list(X.keys())[0]
         device = X[key].device
+        
+        central_species = get_central_species(structures)
+        structural_indices = get_structural_indices(structures)
+        
+        central_indices = torch.IntTensor(central_indices).to(device)
+        derivative_indices = torch.IntTensor(derivative_indices).to(device)
+        
+        
+        
         for key in X.keys():
             if not X[key].requires_grad:
                 raise ValueError("input should require grad for calculation of forces")
-        predictions = self.forward(X, central_species, structural_indices)
+        predictions = self.forward(X, structures)
         derivatives = grad_dict(predictions, X)
         
         derivatives_aligned = {}
         for key in derivatives.keys():
             derivatives_aligned[key] = torch.index_select(derivatives[key],
                                                   0, central_indices)
+            
+        
+        
         contributions = {}        
         for key in derivatives.keys():
             #print("derivatives_aligned shape:", torch.unsqueeze(derivatives_aligned[key], 1).shape)
@@ -61,9 +77,16 @@ class Atomistic(torch.nn.Module):
         forces_predictions = torch.zeros([structural_indices.shape[0], 3],
                                       device = device, dtype = torch.get_default_dtype())
         
-        for key in contributions.keys():            
+        for key in contributions.keys():  
+            '''print("derivative_indices", derivative_indices.type(), torch.min(derivative_indices),
+                  torch.max(derivative_indices), derivative_indices.shape)
+            print("central_indices", central_indices.type(), torch.min(central_indices),
+                  torch.max(central_indices), central_indices.shape)
+            print("conytributions: ", contributions[key].type(), contributions[key].shape)
+            print("forces predictions: ", forces_predictions.type(), forces_predictions.shape)'''
+                  
             forces_predictions.index_add_(0, derivative_indices, contributions[key])
-            
+            #print("passed")
         return forces_predictions
     
     

@@ -1,7 +1,7 @@
 import numpy as np
 from nice.utilities import *
 
-def get_numerical_derivatives(structures, all_species, hypers, epsilon = 1e-6):
+def get_numerical_derivatives(structures, all_species, hypers, epsilon = 1e-6, show_progress = True):
     result = []
     
     
@@ -9,7 +9,7 @@ def get_numerical_derivatives(structures, all_species, hypers, epsilon = 1e-6):
         first_structures, second_structures = [], []
         central_indices, derivative_indices = [], []
         pos = 0
-        for struc_ind in tqdm.tqdm(range(len(structures))):
+        for struc_ind in tqdm.tqdm(range(len(structures)), disable = not show_progress):
             for atom_ind in range(len(structures[struc_ind].positions)):
                 
                 first = copy.deepcopy(structures[struc_ind])
@@ -37,7 +37,13 @@ def get_numerical_derivatives(structures, all_species, hypers, epsilon = 1e-6):
         derivative = (first_coefs - second_coefs) / epsilon
         derivative = derivative[:, np.newaxis, :, :, :]
         result.append(derivative)
-    return np.concatenate(result, axis = 1), np.array(central_indices), np.array(derivative_indices)
+    result = np.concatenate(result, axis = 1)
+
+    result_shaped = {}
+    for l in range(result.shape[3]):
+        result_shaped[l] = result[:, :, :, l, :(2 * l + 1)]
+    
+    return result_shaped, np.array(central_indices), np.array(derivative_indices)
         
                 
                 
