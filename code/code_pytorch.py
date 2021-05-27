@@ -20,24 +20,63 @@ def grad_dict(outputs, inputs, **kwargs):
         result[inputs[i][0]] = derivatives[i]
     return result
 
+
+def get_forces(target_X_der, X_pos_der, central_indices, derivative_indices, device):
+    
+    central_indices = torch.IntTensor(central_indices).to(device)
+    derivative_indices = torch.IntTensor(derivative_indices).to(device)
+        
+    derivatives_aligned = {}
+    for key in derivatives.keys():
+        derivatives_aligned[key] = torch.index_select(target_X_der[key],
+                                              0, central_indices)
+    contributions = {}        
+    for key in derivatives.keys():
+        #print("derivatives_aligned shape:", torch.unsqueeze(derivatives_aligned[key], 1).shape)
+        #print("X_der shape: ", X_der[key].shape)
+        dims_sum = list(range(len(X_der[key].shape)))[2:]
+        #print("dims_sum: ", dims_sum)
+        contributions[key] = -torch.sum(torch.unsqueeze(derivatives_aligned[key], 1)\
+                               * X_pos_der[key], dim = dims_sum)
+    forces_predictions = torch.zeros([structural_indices.shape[0], 3],
+                                  device = device, dtype = torch.get_default_dtype())
+
+    for key in contributions.keys():
+        forces_predictions.index_add_(0, derivative_indices, contributions[key])       
+    return forces_predictions
+
 class Atomistic(torch.nn.Module):
-    def __init__(self, models):
+    def __init__(self, models, accumulate = True):
         super(Atomistic, self).__init__()
-        self.models = nn.ModuleDict(models)
-        self.splitter = CentralSplitter()
-        self.uniter = CentralUniter()
-        self.accumulator = Accumulator()
+        self.accumulate = accumulate
+        if type(models) == dict:
+            self.central_specific = True
+            self.splitter = CentralSplitter()
+            self.uniter = CentralUniter()
+            self.models = nn.ModuleDict(models)
+        else:
+            self.central_specific = False
+            self.model = models
+        
+        
+        if self.accumulate:
+            self.accumulator = Accumulator()
         
     def forward(self, X, structures):
-        central_species = get_central_species(structures)
-        structural_indices = get_structural_indices(structures)
-        
-        splitted = self.splitter(X, central_species)
-        result = {}
-        for key in splitted.keys():            
-            result[key] = self.models[str(key)](splitted[key])
-        result = self.uniter(result, central_species)
-        result = self.accumulator(result, structural_indices)
+        if self.central_specific:
+            central_species = get_central_species(structures)           
+
+            splitted = self.splitter(X, central_species)
+            result = {}
+            for key in splitted.keys():            
+                result[key] = self.models[str(key)](splitted[key])
+            result = self.uniter(result, central_species)
+        else:
+            result = self.model(X)
+            
+        if self.accumulate:
+            structural_indices = get_structural_indices(structures)
+            result = self.accumulator(result, structural_indices)
         return result
     
     def get_forces(self, X, structures,
@@ -48,46 +87,12 @@ class Atomistic(torch.nn.Module):
         central_species = get_central_species(structures)
         structural_indices = get_structural_indices(structures)
         
-        central_indices = torch.IntTensor(central_indices).to(device)
-        derivative_indices = torch.IntTensor(derivative_indices).to(device)
-        
-        
-        
         for key in X.keys():
             if not X[key].requires_grad:
                 raise ValueError("input should require grad for calculation of forces")
         predictions = self.forward(X, structures)
         derivatives = grad_dict(predictions, X)
-        
-        derivatives_aligned = {}
-        for key in derivatives.keys():
-            derivatives_aligned[key] = torch.index_select(derivatives[key],
-                                                  0, central_indices)
-            
-        
-        
-        contributions = {}        
-        for key in derivatives.keys():
-            #print("derivatives_aligned shape:", torch.unsqueeze(derivatives_aligned[key], 1).shape)
-            #print("X_der shape: ", X_der[key].shape)
-            dims_sum = list(range(len(X_der[key].shape)))[2:]
-            #print("dims_sum: ", dims_sum)
-            contributions[key] = -torch.sum(torch.unsqueeze(derivatives_aligned[key], 1)\
-                                   * X_der[key], dim = dims_sum)
-        forces_predictions = torch.zeros([structural_indices.shape[0], 3],
-                                      device = device, dtype = torch.get_default_dtype())
-        
-        for key in contributions.keys():  
-            '''print("derivative_indices", derivative_indices.type(), torch.min(derivative_indices),
-                  torch.max(derivative_indices), derivative_indices.shape)
-            print("central_indices", central_indices.type(), torch.min(central_indices),
-                  torch.max(central_indices), central_indices.shape)
-            print("conytributions: ", contributions[key].type(), contributions[key].shape)
-            print("forces predictions: ", forces_predictions.type(), forces_predictions.shape)'''
-                  
-            forces_predictions.index_add_(0, derivative_indices, contributions[key])
-            #print("passed")
-        return forces_predictions
+        return get_forces(derivatives, X_der, central_indices, derivative_indices, device)
     
     
 class Accumulator(torch.nn.Module):
@@ -315,8 +320,8 @@ class ClebschCombiningSingle(torch.nn.Module):
             second = second.reshape(second.shape[0], -1, second.shape[3])            
             return self.unrolled(first, second)
         else:
-            first = torch.index_select(first, 1, torch.IntTensor(self.task[:, 0]))
-            second = torch.index_select(second, 1, torch.IntTensor(self.task[:, 1]))
+            first = torch.index_select(first, 1, self.task[:, 0])
+            second = torch.index_select(second, 1, self.task[:, 1])
             return self.unrolled(first, second)
         
            
