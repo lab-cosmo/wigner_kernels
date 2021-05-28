@@ -4,6 +4,13 @@ import copy
 from rascal.representations import SphericalExpansion as SPH
 from nice.rascal_coefficients import process_structures
 
+def get_all_species(structures):
+    result = []
+    for structure in structures:
+        result.append(structure.get_atomic_numbers())
+    result = np.concatenate(result, axis = 0)
+    return np.sort(np.unique(result))
+
 def get_central_species(structures):
     result = []
     for structure in structures:
@@ -117,6 +124,24 @@ def convert_rascal_coefficients(features, n_max, n_types, l_max):
     
     return result
 
+def get_coefs(structures, hypers, all_species):
+    structures = process_structures(structures)
+    hypers = copy.deepcopy(hypers)
+    hypers['global_species'] = [int(specie) for specie in all_species]
+    hypers['expansion_by_species_method'] = 'user defined'
+    hypers['compute_gradients'] = True
+    
+    n_max = hypers['max_radial']
+    l_max = hypers['max_angular']
+    n_types = len(all_species)
+    soap = SPH(**hypers)
+    features = soap.transform(structures)
+    coefficients = features.get_features(soap)
+    coefficients = convert_rascal_coefficients(coefficients, n_max, n_types, l_max)
+    for key in coefficients.keys():
+        coefficients[key] = torch.from_numpy(coefficients[key]).type(torch.get_default_dtype())
+    return coefficients
+
 def get_coef_ders(structures, hypers, all_species):
     structures = process_structures(structures)
     hypers = copy.deepcopy(hypers)
@@ -144,5 +169,7 @@ def get_coef_ders(structures, hypers, all_species):
     for key in gradients.keys():
         gradients[key] = gradients[key][indices]
    
+    for key in gradients.keys():
+        gradients[key] = torch.from_numpy(gradients[key]).type(torch.get_default_dtype())
     return gradients, grad_info[:, 1], grad_info[:, 2]
     

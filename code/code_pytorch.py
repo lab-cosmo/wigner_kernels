@@ -21,20 +21,21 @@ def grad_dict(outputs, inputs, **kwargs):
     return result
 
 
-def get_forces(target_X_der, X_pos_der, central_indices, derivative_indices, device):
+def get_forces(structures, target_X_der, X_pos_der, central_indices, derivative_indices, device):
+    structural_indices = get_structural_indices(structures)
     
     central_indices = torch.IntTensor(central_indices).to(device)
     derivative_indices = torch.IntTensor(derivative_indices).to(device)
         
     derivatives_aligned = {}
-    for key in derivatives.keys():
+    for key in target_X_der.keys():
         derivatives_aligned[key] = torch.index_select(target_X_der[key],
                                               0, central_indices)
     contributions = {}        
-    for key in derivatives.keys():
+    for key in X_pos_der.keys():
         #print("derivatives_aligned shape:", torch.unsqueeze(derivatives_aligned[key], 1).shape)
         #print("X_der shape: ", X_der[key].shape)
-        dims_sum = list(range(len(X_der[key].shape)))[2:]
+        dims_sum = list(range(len(X_pos_der[key].shape)))[2:]
         #print("dims_sum: ", dims_sum)
         contributions[key] = -torch.sum(torch.unsqueeze(derivatives_aligned[key], 1)\
                                * X_pos_der[key], dim = dims_sum)
@@ -84,15 +85,12 @@ class Atomistic(torch.nn.Module):
         key = list(X.keys())[0]
         device = X[key].device
         
-        central_species = get_central_species(structures)
-        structural_indices = get_structural_indices(structures)
-        
         for key in X.keys():
             if not X[key].requires_grad:
                 raise ValueError("input should require grad for calculation of forces")
         predictions = self.forward(X, structures)
         derivatives = grad_dict(predictions, X)
-        return get_forces(derivatives, X_der, central_indices, derivative_indices, device)
+        return get_forces(structures, derivatives, X_der, central_indices, derivative_indices, device)
     
     
 class Accumulator(torch.nn.Module):
