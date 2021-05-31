@@ -21,8 +21,7 @@ def grad_dict(outputs, inputs, **kwargs):
     return result
 
 
-def get_forces(structures, target_X_der, X_pos_der, central_indices, derivative_indices, device):
-    structural_indices = get_structural_indices(structures)
+def get_forces(structural_indices, target_X_der, X_pos_der, central_indices, derivative_indices, device):
     
     central_indices = torch.IntTensor(central_indices).to(device)
     derivative_indices = torch.IntTensor(derivative_indices).to(device)
@@ -63,9 +62,11 @@ class Atomistic(torch.nn.Module):
         if self.accumulate:
             self.accumulator = Accumulator()
         
-    def forward(self, X, structures):
+    def forward(self, X, central_species = None, structural_indices = None):
         if self.central_specific:
-            central_species = get_central_species(structures)           
+            if central_species is None:
+                raise ValueError("central species should be provided for central specie specific model")
+                      
 
             splitted = self.splitter(X, central_species)
             result = {}
@@ -76,21 +77,22 @@ class Atomistic(torch.nn.Module):
             result = self.model(X)
             
         if self.accumulate:
-            structural_indices = get_structural_indices(structures)
+            if structural_indices is None:
+                raise ValueError("structural indices should be provided to accumulate structural targets")
             result = self.accumulator(result, structural_indices)
         return result
     
-    def get_forces(self, X, structures,
-                   X_der, central_indices, derivative_indices):
+    def get_forces(self, X_der, central_indices, derivative_indices, 
+                   X, central_species = None, structural_indices = None):
         key = list(X.keys())[0]
         device = X[key].device
         
         for key in X.keys():
             if not X[key].requires_grad:
                 raise ValueError("input should require grad for calculation of forces")
-        predictions = self.forward(X, structures)
+        predictions = self.forward(X, central_species = central_species, structural_indices = structural_indices)
         derivatives = grad_dict(predictions, X)
-        return get_forces(structures, derivatives, X_der, central_indices, derivative_indices, device)
+        return get_forces(structural_indices, derivatives, X_der, central_indices, derivative_indices, device)
     
     
 class Accumulator(torch.nn.Module):
@@ -98,19 +100,25 @@ class Accumulator(torch.nn.Module):
         super(Accumulator, self).__init__()
         
     def forward(self, features, structural_indices):
-        n_structures = np.max(structural_indices) + 1
+        
+        key = list(features.keys())[0]
+        device = features[key].device
+        
+        if not torch.is_tensor(structural_indices):
+            structural_indices = torch.IntTensor(structural_indices).to(device)
+        else:
+            structural_indices = structural_indices.to(device)
+            
+        n_structures = torch.max(structural_indices).item() + 1
         shapes = {}
-        device = None
         
         for key, value in features.items():
             now = list(value.shape)
             now[0] = n_structures
             shapes[key] = now
-            device = value.device            
+                    
        
         result = {key : torch.zeros(shape, dtype = torch.get_default_dtype()).to(device) for key, shape in shapes.items()}
-       
-        structural_indices = torch.IntTensor(structural_indices).to(device)
         
         for key, value in features.items():
             result[key].index_add_(0, structural_indices, features[key])       
@@ -166,6 +174,87 @@ class CentralUniter(torch.nn.Module):
     
 
     
+def multiply(first, second, multiplier):
+    return [first[0], second[0], first[1] * second[1] * multiplier]
+
+def multiply_sequence(sequence, multiplier):
+    result = []
+    
+    for el in sequence:
+        #print(el)
+        #print(len(el))
+        result.append([el[0], el[1], el[2] * multiplier])
+    return result
+
+def get_conversion(l, m):
+    if (m < 0):
+        X_re = [abs(m) + l, 1.0 / np.sqrt(2)]
+        X_im = [m + l, -1.0 / np.sqrt(2)]
+    if m == 0:
+        X_re = [l, 1.0]
+        X_im = [l, 0.0]
+    if m > 0:
+        if m % 2 == 0:
+            X_re = [m + l, 1.0 / np.sqrt(2)]
+            X_im = [-m + l, 1.0 / np.sqrt(2)]
+        else:
+            X_re = [m + l, -1.0 / np.sqrt(2)]
+            X_im = [-m + l, -1.0 / np.sqrt(2)]
+    return X_re, X_im
+
+def compress(sequence, epsilon = 1e-15):
+    result = []
+    for i in range(len(sequence)):
+        m1, m2, multiplier = sequence[i][0], sequence[i][1], sequence[i][2]
+        already = False
+        for j in range(len(result)):
+            if (m1 == result[j][0]) and (m2 == result[j][1]):
+                already = True
+                break
+                
+        if not already:
+            multiplier = 0.0
+            for j in range(i, len(sequence)):
+                if (m1 == sequence[j][0]) and (m2 == sequence[j][1]):
+                    multiplier += sequence[j][2]
+            if (np.abs(multiplier) > epsilon):
+                result.append([m1, m2, multiplier])
+    #print(len(sequence), '->', len(result))
+    return result
+
+def precompute_transformation(clebsch, l1, l2, lambd):
+    result = [[] for _ in range(2 * lambd + 1)]
+    for mu in range(0, lambd + 1):
+        real_now = []
+        imag_now = []
+        for m2 in range(max(-l2, mu-l1), min(l2,mu+l1)+1):
+            m1 = mu - m2
+            X1_re, X1_im = get_conversion(l1, m1)
+            X2_re, X2_im = get_conversion(l2, m2)
+
+            real_now.append(multiply(X1_re, X2_re, clebsch[m1 + l1, m2 + l2]))
+            real_now.append(multiply(X1_im, X2_im, -clebsch[m1 + l1, m2 + l2]))
+
+
+            imag_now.append(multiply(X1_re, X2_im, clebsch[m1 + l1, m2 + l2]))
+            imag_now.append(multiply(X1_im, X2_re, clebsch[m1 + l1, m2 + l2]))
+        #print(real_now)
+        if (l1 + l2 - lambd) % 2 == 1:
+            imag_now, real_now = real_now, multiply_sequence(imag_now, -1)
+        if mu > 0:
+            if mu % 2 == 0:
+                result[mu + lambd] = multiply_sequence(real_now, np.sqrt(2))
+                result[-mu + lambd] = multiply_sequence(imag_now, np.sqrt(2))
+            else:
+                result[mu + lambd] = multiply_sequence(real_now, -np.sqrt(2))
+                result[-mu + lambd] = multiply_sequence(imag_now, -np.sqrt(2))
+        else:
+            result[lambd] = real_now
+            
+    for i in range(len(result)):
+        result[i] = compress(result[i])
+    return result
+
 class ClebschCombiningSingleUnrolled(torch.nn.Module):
     def __init__(self, clebsch, lambd): 
         super(ClebschCombiningSingleUnrolled, self).__init__()
@@ -173,119 +262,42 @@ class ClebschCombiningSingleUnrolled(torch.nn.Module):
         self.lambd = lambd
         self.l1 = (self.clebsch.shape[0] - 1) // 2
         self.l2 = (self.clebsch.shape[1] - 1) // 2
-        index = []
-        mask = []
-        for m1 in range(clebsch.shape[0]):
-            for m2 in range(clebsch.shape[1]):
-                if (m1+ m2 < (2 * lambd + 1)):
-                    index.append(m1 + m2)
-                    mask.append(True)
-                else:
-                    mask.append(False)
-        self.register_buffer('mask', torch.tensor(mask, dtype = torch.bool))
-        self.register_buffer('index', torch.IntTensor(index))
-        self.sqrt_2 = np.sqrt(2.0)
-        self.sqrt_2_inv = 1.0 / np.sqrt(2.0)
+        self.transformation = precompute_transformation(clebsch, self.l1, self.l2, lambd)
+        self.m1_aligned, self.m2_aligned = [], []
+        self.multipliers, self.mu = [], []
+        for mu in range(0, 2 * self.lambd + 1):
+            for el in self.transformation[mu]:
+                m1, m2, multiplier = el
+                self.m1_aligned.append(m1)
+                self.m2_aligned.append(m2)
+                self.multipliers.append(multiplier)
+                self.mu.append(mu)
+        self.m1_aligned = torch.LongTensor(self.m1_aligned)
+        self.m2_aligned = torch.LongTensor(self.m2_aligned)
+        self.mu = torch.LongTensor(self.mu)
+        self.multipliers = torch.tensor(self.multipliers).type(torch.get_default_dtype())
         
     
     def forward(self, X1, X2):
         #print("here:", X1.shape, X2.shape)
-        X1 = X1.transpose(0, 2).contiguous()
-        X2 = X2.transpose(0, 2).contiguous()
-        if self.index.is_cuda:
-            result = torch.zeros([2 * self.lambd + 1, X1.shape[1], X2.shape[2]], device = 'cuda')
-        else:
-            result = torch.zeros([2 * self.lambd + 1, X1.shape[1], X2.shape[2]])
         
-        for mu in range(0, self.lambd + 1):
-            real_now = 0.0
-            imag_now = 0.0
-            for m2 in range(max(-self.l2, mu-self.l1), min(self.l2,mu+self.l1)+1):
-                m1 = mu - m2
-                #print(m1, m2, mu)
-                if (m1 < 0):
-                    X1_re = X1[abs(m1) + self.l1] * self.sqrt_2_inv
-                    X1_im = -X1[m1 + self.l1] * self.sqrt_2_inv
+        
+        device = X1.device
+        if str(device).startswith('cuda'): #the fastest algorithm depends on device
+            multipliers = self.multipliers.to(device)
+            mu = self.mu.to(device)
+            contributions = X1[:, :, self.m1_aligned] * X2[:, :, self.m2_aligned] * multipliers
 
-                if (m1 == 0):
-                    X1_re = X1[self.l1]
-                    X1_im = torch.zeros_like(X1[self.l1])
-                if (m1 > 0):
-                    if (m1 % 2 == 0):
-                        X1_re = X1[m1 + self.l1] * self.sqrt_2_inv
-                        X1_im = X1[-m1 + self.l1] * self.sqrt_2_inv
-                    else:
-                        X1_re = -X1[m1 + self.l1] * self.sqrt_2_inv
-                        X1_im = -X1[-m1 + self.l1] * self.sqrt_2_inv
-                        
-                        
-                if (m2 < 0):
-                    X2_re = X2[abs(m2) + self.l2] * self.sqrt_2_inv
-                    X2_im = -X2[m2 + self.l2] * self.sqrt_2_inv
-
-                if (m2 == 0):
-                    X2_re = X2[self.l2]
-                    X2_im = torch.zeros_like(X2[self.l2])
-                if (m2 > 0):
-                    if (m2 % 2 == 0):
-                        X2_re = X2[m2 + self.l2] * self.sqrt_2_inv
-                        X2_im = X2[-m2 + self.l2] * self.sqrt_2_inv
-                    else:
-                        X2_re = -X2[m2 + self.l2] * self.sqrt_2_inv
-                        X2_im = -X2[-m2 + self.l2] * self.sqrt_2_inv
-                        
-                real_now += self.clebsch[m1 + self.l1, m2 + self.l2] * \
-                (X1_re * X2_re - X1_im * X2_im)
-                
-                imag_now += self.clebsch[m1 + self.l1, m2 + self.l2] * \
-                    (X1_re * X2_im + X1_im * X2_re)
-                '''print(real_now.shape)
-                print(self.clebsch[m1 + self.l1, m2 + self.l2].shape)
-                print(X1_re.shape)
-                print(X2_re.shape)'''
-               
-            if ((self.l1 + self.l2 - self.lambd) % 2 == 1):
-                imag_now, real_now = real_now, -imag_now      
-            
-            #if (mu == 0):
-            #    print(self.l1 + self.l2 - self.lambd, real_now.abs().sum(), imag_now.abs().sum())
-                      
-        
-            if (mu > 0):
-                if mu % 2 == 0:
-                    result[mu + self.lambd] = self.sqrt_2 * real_now
-                    result[-mu + self.lambd] = self.sqrt_2 * imag_now
-                else:
-                    result[mu + self.lambd] = -self.sqrt_2 * real_now
-                    result[-mu + self.lambd] = -self.sqrt_2 * imag_now
-            else:
-                #print(real_now)
-                result[self.lambd] = real_now
-        result = result.transpose(0, 2)      
-        return result
-    
-        '''for m1 in range(self.clebsch.shape[0]):
-            for m2 in range(self.clebsch.shape[1]):
-                destination = m1 + m2 - self.l1 - self.l2 + self.lambd
-                if (destination >= 0) and (destination < 2 * self.lambd + 1):                    
-                    result[destination, :, :] += X1[m1] * X2[m2] * self.clebsch[m1, m2]
-                    
-        return result'''
-        '''#print("clebsch grad:", self.clebsch.requires_grad, self.mask.requires_grad, self.index.requires_grad)
-        X1 = X1[:, :, :, None]
-        X2 = X2[:, :, None, :]
-        #print(self.l1, self.l2, X1.shape, X2.shape)
-        mult = X1 * X2
-        mult = mult * self.clebsch
-       
-        mult = mult.reshape(mult.shape[0], mult.shape[1], -1)
-        if self.index.is_cuda:
-            result = torch.zeros([mult.shape[0], mult.shape[1], 2 * self.lambd + 1], device = 'cuda')
+            result = torch.zeros([X1.shape[0], X2.shape[1], 2 * self.lambd + 1], device = device)
+            result.index_add_(2, mu, contributions)
+            return result
         else:
-            result = torch.zeros([mult.shape[0], mult.shape[1], 2 * self.lambd + 1])
-        
-        result = result.index_add_(2, self.index, mult[:, :, self.mask])        
-        return result'''
+            result = torch.zeros([X1.shape[0], X2.shape[1], 2 * self.lambd + 1], device = device)
+            for mu in range(0, 2 * self.lambd + 1):
+                for m1, m2, multiplier in self.transformation[mu]:
+                    result[:, :, mu] += X1[:, :, m1] * X2[:, :, m2] * multiplier
+           
+            return result
     
     
 def get_each_with_each_task(first_size, second_size):
@@ -347,7 +359,7 @@ class ClebschCombining(torch.nn.Module):
     def forward(self, X1, X2):
         result = {}
         for lambd in range(self.lambd_max + 1):
-            result[lambd] = []
+            result[str(lambd)] = []
         
         for key1 in X1.keys():
             for key2 in X2.keys():
@@ -355,7 +367,7 @@ class ClebschCombining(torch.nn.Module):
                 l2 = int(key2)
                 for lambd in range(abs(l1 - l2), min(l1 + l2, self.lambd_max) + 1):                   
                     combiner = self.single_combiners['{}_{}_{}'.format(l1, l2, lambd)]                   
-                    result[lambd].append(combiner(X1[key1], X2[key2]))
+                    result[str(lambd)].append(combiner(X1[key1], X2[key2]))
                     #print('{}_{}_{}'.format(l1, l2, lambd), result[lambd][-1].sum())
                     #print(X1[key1].shape, X2[key2].shape, result[str(lambd)][-1].shape)
                     

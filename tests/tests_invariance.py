@@ -11,7 +11,7 @@ import os
 def convert_to_torch(coefficients):
     result = {}
     for lambd in range(coefficients.shape[2]):
-        result[lambd] = torch.FloatTensor(coefficients[:, :, lambd, : 2 * lambd + 1])
+        result[str(lambd)] = torch.FloatTensor(coefficients[:, :, lambd, : 2 * lambd + 1])
         #result[lambd] = result[lambd].transpose(0, -1)
         #print("shape: ", lambd, result[lambd].shape)
     return result
@@ -75,7 +75,7 @@ def get_torch_invariants(structures, Model, N_MAX, L_MAX):
 
     result = {}
     for key in coefficients.keys():
-        result[key] = np.array(model(coefficients[key])[0].squeeze())
+        result[key] = np.array(model(coefficients[key])['0'].squeeze())
     return result
 
 def single_test_invariance(structures, Model, N_MAX, L_MAX, epsilon, verbose = False):
