@@ -109,7 +109,7 @@ class Accumulator(torch.nn.Module):
         else:
             structural_indices = structural_indices.to(device)
             
-        n_structures = torch.max(structural_indices).item() + 1
+        n_structures = torch.max(structural_indices) + 1
         shapes = {}
         
         for key, value in features.items():

@@ -4,6 +4,24 @@ import copy
 from rascal.representations import SphericalExpansion as SPH
 from nice.rascal_coefficients import process_structures
 
+def get_L2_mean(covariants):
+    L2 = 0.0
+    for key in covariants.keys():
+        L2 = L2 + torch.sum(covariants[key] * covariants[key], dim = (1, 2))
+        
+    return torch.mean(L2)
+
+def L2_normalize(covariants, epsilon = 1e-15):
+    L2 = 0.0
+    for key in covariants.keys():
+        L2 = L2 + torch.sum(covariants[key] * covariants[key], dim = (1, 2))
+        
+    #print(torch.sqrt(L2 + epsilon))
+    result = {}
+    for key in covariants.keys():
+        result[key] = covariants[key] / torch.sqrt(L2 + epsilon)[:, None, None]
+    return result
+        
 def get_all_species(structures):
     result = []
     for structure in structures:
