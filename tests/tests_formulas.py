@@ -63,11 +63,11 @@ def single_test_ps_formula(clebsch, N_MAX, L_MAX, epsilon, verbose):
 
     coefficients_torch = {}
     for l in range(L_MAX):
-        coefficients_torch[l] = torch.FloatTensor(coefficients[l])[:, :, None]
+        coefficients_torch[l] = torch.FloatTensor(coefficients[l]).transpose(0, 1)[None, :, :]
             
     model_ps = Powerspectrum(clebsch.precomputed_)
     ps_torch = model_ps(coefficients_torch)
-    ps_torch = np.array(ps_torch[0]).squeeze()
+    ps_torch = np.array(ps_torch['0']).squeeze()
 
     total = np.sum(np.abs(np.sort(ps)))
     diff = np.sum(np.abs(np.sort(ps) - np.sort(ps_torch)))
@@ -144,11 +144,11 @@ def single_test_bs_formula(clebsch, N_MAX, L_MAX, epsilon, verbose):
     
     coefficients_torch = {}
     for l in range(L_MAX):
-        coefficients_torch[l] = torch.FloatTensor(coefficients[l])[:, :, None]
+        coefficients_torch[l] = torch.FloatTensor(coefficients[l]).transpose(0, 1)[None, :, :]
         
     model_bs = Bispectrum(clebsch.precomputed_, L_MAX)
     bs_torch = model_bs(coefficients_torch)
-    bs_torch = np.array(bs_torch[0]).squeeze()   
+    bs_torch = np.array(bs_torch['0']).squeeze()   
     
     total = np.sum(np.abs(np.sort(bs)))
     diff = np.sum(np.abs(np.sort(bs) - np.sort(bs_torch)))
