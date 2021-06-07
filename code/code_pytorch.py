@@ -124,7 +124,22 @@ class Accumulator(torch.nn.Module):
             result[key].index_add_(0, structural_indices, features[key])       
         return result       
         
-        
+class Concatenator(torch.nn.Module):
+    def __init__(self):
+        super(Concatenator, self).__init__()
+    def forward(self, covariants):
+        all_keys = set()
+        for el in covariants:
+            all_keys.update(set(el.keys()))
+        result = {}
+        for key in all_keys:
+            now = []
+            for el in covariants:
+                if key in el.keys():
+                    now.append(el[key])
+            result[key] = torch.cat(now, dim = 1)
+        return result
+    
 class CentralSplitter(torch.nn.Module):
     def __init__(self): 
         super(CentralSplitter, self).__init__()
