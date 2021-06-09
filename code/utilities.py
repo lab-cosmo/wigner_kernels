@@ -51,6 +51,33 @@ def get_n_atoms(structures):
         result.append(len(structure.get_atomic_numbers()))
     return np.array(result)
 
+def nested_map(obj, func):
+    if type(obj) is dict:
+        result = {}
+        for key in obj.keys():
+            result[key] = nested_map(obj[key], func)
+        return result
+    if type(obj) is list:
+        result = []
+        for value in obj:
+            result.append(nested_map(value, func))
+        return result
+    return func(obj)
+
+
+def apply_slice(obj, start, finish):
+    def func(value):
+        return value[start:finish]
+    return nested_map(obj, func)
+
+def to_device(obj, device):
+    def func(value):
+        if torch.is_tensor(value):
+            return value.to(device)
+        else:
+            return value
+    return nested_map(obj, func)
+
 def iterate_minibatches(atomic_der_data, central_indices, derivative_indices,
                         atomic_data, structural_data, structures,
                         batch_size, target_device):
@@ -82,34 +109,25 @@ def iterate_minibatches(atomic_der_data, central_indices, derivative_indices,
         next_struc = min(start_struc + batch_size, n_structures)
         
         if (atomic_data is not None):
-            atomic_batch = {}
-            for key, el in atomic_data.items():
-                atomic_batch[key] = el[beginnings[start_struc] : beginnings[next_struc]]
-                if torch.is_tensor(atomic_batch[key]):
-                    atomic_batch[key] = atomic_batch[key].to(target_device)
+            atomic_batch = apply_slice(atomic_data, beginnings[start_struc],
+                                       beginnings[next_struc])
+            atomic_batch = to_device(atomic_batch, target_device)
         else:
             atomic_batch = None
        
             
         if (structural_data is not None):
-            structural_batch = {}
-            for key, el in structural_data.items():
-                structural_batch[key] = el[start_struc : next_struc]
-                if torch.is_tensor(structural_batch[key]):
-                    structural_batch[key] = structural_batch[key].to(target_device)
+            
+            structural_batch = apply_slice(structural_data, start_struc, next_struc)
+            structural_batch = to_device(structural_batch, target_device)
         else:
             structural_batch = None
          
         if (atomic_der_data is not None):
-            atomic_der_batch = {}
-            for key, el in atomic_der_data.items():
-                atomic_der_batch[key] = el[beginnings_der[start_struc] : beginnings_der[next_struc]]
-                if torch.is_tensor(atomic_der_batch[key]):
-                    atomic_der_batch[key] = atomic_der_batch[key].to(target_device)
-            '''print("len central indices: ", len(central_indices))
-            print("start struc: ", start_struc)
-            print("next_start: ", next_struc)
-            print("slice : ", beginnings_der[start_struc], beginnings_der[next_struc])'''
+            atomic_der_batch = apply_slice(atomic_der_data,
+                                           beginnings_der[start_struc],
+                                           beginnings_der[next_struc])
+            atomic_der_batch = to_device(atomic_der_batch, target_device)
                 
             #print("iterate from to: ", beginnings_der[start_struc] , beginnings_der[next_struc])
             central_indices_batch = central_indices[beginnings_der[start_struc] : beginnings_der[next_struc]]
@@ -147,7 +165,6 @@ def get_coefs(structures, hypers, all_species):
     hypers = copy.deepcopy(hypers)
     hypers['global_species'] = [int(specie) for specie in all_species]
     hypers['expansion_by_species_method'] = 'user defined'
-    hypers['compute_gradients'] = True
     
     n_max = hypers['max_radial']
     l_max = hypers['max_angular']
