@@ -124,9 +124,9 @@ class Accumulator(torch.nn.Module):
             result[key].index_add_(0, structural_indices, features[key])       
         return result       
         
-class Concatenator(torch.nn.Module):
+class CovCat(torch.nn.Module):
     def __init__(self):
-        super(Concatenator, self).__init__()
+        super(CovCat, self).__init__()
     def forward(self, covariants):
         all_keys = set()
         for el in covariants:
@@ -138,6 +138,30 @@ class Concatenator(torch.nn.Module):
                 if key in el.keys():
                     now.append(el[key])
             result[key] = torch.cat(now, dim = 1)
+        return result
+    
+class CovLinear(torch.nn.Module):
+    def __init__(self, in_shape, out_shape):
+        super(CovLinear, self).__init__()
+        self.in_shape = in_shape
+        if type(out_shape) is dict:
+            self.out_shape = out_shape
+        else:
+            self.out_shape = {}
+            for key in self.in_shape.keys():
+                self.out_shape[key] = out_shape
+        linears = {}
+        for key in self.in_shape.keys():
+            linears[key] = torch.nn.Linear(self.in_shape[key], 
+                                           self.out_shape[key], bias = False)
+        self.linears = nn.ModuleDict(linears)
+    def forward(self, features):
+        result = {}
+        for key in features.keys():
+            now = features[key].transpose(1, 2)
+            now = self.linears[key](now)
+            now = now.transpose(1, 2)
+            result[key] = now
         return result
     
 class CentralSplitter(torch.nn.Module):
