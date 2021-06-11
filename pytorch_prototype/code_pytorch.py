@@ -155,9 +155,10 @@ class CovLinear(torch.nn.Module):
             linears[key] = torch.nn.Linear(self.in_shape[key], 
                                            self.out_shape[key], bias = False)
         self.linears = nn.ModuleDict(linears)
+        
     def forward(self, features):
         result = {}
-        for key in features.keys():
+        for key in self.linears.keys():
             now = features[key].transpose(1, 2)
             now = self.linears[key](now)
             now = now.transpose(1, 2)
@@ -399,9 +400,9 @@ class ClebschCombining(torch.nn.Module):
             
         
     def forward(self, X1, X2):
-        result = {}
+        lists = {}
         for lambd in range(self.lambd_max + 1):
-            result[str(lambd)] = []
+            lists[str(lambd)] = []
         
         for key1 in X1.keys():
             for key2 in X2.keys():
@@ -409,10 +410,13 @@ class ClebschCombining(torch.nn.Module):
                 l2 = int(key2)
                 for lambd in range(abs(l1 - l2), min(l1 + l2, self.lambd_max) + 1):                   
                     combiner = self.single_combiners['{}_{}_{}'.format(l1, l2, lambd)]                   
-                    result[str(lambd)].append(combiner(X1[key1], X2[key2]))
+                    lists[str(lambd)].append(combiner(X1[key1], X2[key2]))
                     #print('{}_{}_{}'.format(l1, l2, lambd), result[lambd][-1].sum())
                     #print(X1[key1].shape, X2[key2].shape, result[str(lambd)][-1].shape)
                     
-        for key in result.keys():
-            result[key] = torch.cat(result[key], dim = 1)
+        result = {}
+        for key in lists.keys():
+            if len(lists[key]) > 0:
+                result[key] = torch.cat(lists[key], dim = 1)
+        
         return result

@@ -12,9 +12,9 @@ class Compressor(torch.nn.Module):
     
     def get_n_components(self, tensor):
         if self.n_components is None:
-            return tensor.shape[1]
+            return min(tensor.shape[1], tensor.shape[0])
         else:
-            return min(tensor.shape[1], self.n_components)
+            return min(tensor.shape[1], tensor.shape[0], self.n_components)
     
     def get_linear(self, covs):
         in_shape = {key : value.shape[1] for key, value in covs.items()}
@@ -27,13 +27,22 @@ class Compressor(torch.nn.Module):
             now = covs[key].data.cpu().numpy().transpose(0, 2, 1)
             now = now.reshape(-1, now.shape[2])
             svd = TruncatedSVD(n_components = n_components)
-            svd.fit(now)
-            
-            with torch.no_grad():
-                weight = torch.from_numpy(svd.components_)
-                #print("torch weight shape: ", linear.linears[key].weight.shape)
-                #print("ridge shape: ", weight.shape)
-                linear.linears[key].weight.copy_(weight)
+            if (now.shape[1] == n_components):
+                #print("shape now: ", now.shape)
+                now = np.concatenate([now, np.zeros([now.shape[0], 1])], axis = 1)
+                #print("shape after: ", now.shape)
+                svd.fit(now)
+                #print(svd.components_[:, -1])
+                with torch.no_grad():
+                    weight = torch.from_numpy(svd.components_[:, :-1])
+                    linear.linears[key].weight.copy_(weight)
+            else:
+                svd.fit(now)
+                with torch.no_grad():
+                    weight = torch.from_numpy(svd.components_)
+                    #print("torch weight shape: ", linear.linears[key].weight.shape)
+                    #print("ridge shape: ", weight.shape)
+                    linear.linears[key].weight.copy_(weight)
         return linear
             
     def fit(self, even, odd):
@@ -53,12 +62,12 @@ class Purifier(torch.nn.Module):
         
     def get_linear(self, old_covs, new_covs):
         old_covs = self.cov_cat(old_covs)
-        in_shape = {key : value.shape[1] for key, value in old_covs.items()}
-        out_shape = {key : value.shape[1] for key, value in new_covs.items()}
+        in_shape = {key : value.shape[1] for key, value in old_covs.items() if key in new_covs.keys()}
+        out_shape = {key : value.shape[1] for key, value in new_covs.items() if key in old_covs.keys()}
         
         linear = CovLinear(in_shape, out_shape)
         
-        for key in new_covs.keys():
+        for key in in_shape.keys():
             features = old_covs[key].data.cpu().numpy().transpose(0, 2, 1)
             targets = new_covs[key].data.cpu().numpy().transpose(0, 2, 1)
             features = features.reshape(-1, features.shape[2])
@@ -87,10 +96,17 @@ class Purifier(torch.nn.Module):
            
         result_even = {}
         for key in even_new.keys():
-            result_even[key] = even_new[key] - even_purifying[key]
+            if key in even_purifying.keys():
+                result_even[key] = even_new[key] - even_purifying[key]
+            else:
+                result_even[key] = even_new[key]
+                
         result_odd = {}
         for key in odd_new.keys():
-            result_odd[key] = odd_new[key] - odd_purifying[key]
+            if key in odd_purifying.keys():
+                result_odd[key] = odd_new[key] - odd_purifying[key]
+            else:
+                result_odd[key] = odd_new[key]
         return result_even, result_odd
     
 class Expansioner(torch.nn.Module):
@@ -168,12 +184,17 @@ class BodyOrderIteration(torch.nn.Module):
         return res_even, res_odd
             
         
+
 class NICE(torch.nn.Module):
     def __init__(self, blocks):
         super(NICE, self).__init__()
         self.blocks = blocks
+        self.initial_compressor = Compressor()
         
     def fit(self, even_initial, odd_initial):
+        self.initial_compressor.fit(even_initial, odd_initial)
+        even_initial, odd_initial = self.initial_compressor(even_initial, odd_initial)
+        
         even_now = even_initial
         odd_now = odd_initial
         
@@ -189,6 +210,7 @@ class NICE(torch.nn.Module):
             odd_old.append(odd_now)
             
     def forward(self, even_initial, odd_initial):
+        even_initial, odd_initial  = self.initial_compressor(even_initial, odd_initial)
         even_now = even_initial
         odd_now = odd_initial
         
