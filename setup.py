@@ -7,7 +7,7 @@ with open('requirements.txt', 'r') as f:
     ]
 
 extensions = [
-    Extension("pytorch_prototype.*", ["code/*.pyx"],
+    Extension("pytorch_prototype.*", ["pytorch_prototype/*.pyx"],
               extra_compile_args=['-O3', '-fopenmp'],
               extra_link_args=['-fopenmp'])
 ]
