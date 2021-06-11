@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from utilities import get_central_species, get_structural_indices
+from pytorch_prototype.utilities import get_central_species, get_structural_indices
 
 def grad_dict(outputs, inputs, **kwargs):
     outputs = list(outputs.items())

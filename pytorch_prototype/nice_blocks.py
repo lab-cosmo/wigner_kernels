@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from code_pytorch import *
-
+from pytorch_prototype.code_pytorch import *
+from pytorch_prototype.miscellaneous import ClebschGordan
 from sklearn.decomposition import TruncatedSVD
 
 class Compressor(torch.nn.Module):
@@ -31,6 +31,8 @@ class Compressor(torch.nn.Module):
             
             with torch.no_grad():
                 weight = torch.from_numpy(svd.components_)
+                #print("torch weight shape: ", linear.linears[key].weight.shape)
+                #print("ridge shape: ", weight.shape)
                 linear.linears[key].weight.copy_(weight)
         return linear
             
@@ -80,6 +82,9 @@ class Purifier(torch.nn.Module):
         even_purifying = self.even_linear(even_old)
         odd_purifying = self.odd_linear(odd_old)
         
+        #for key in even_purifying.keys():
+        #    print(key, even_purifying[key].shape)
+           
         result_even = {}
         for key in even_new.keys():
             result_even[key] = even_new[key] - even_purifying[key]
@@ -87,5 +92,113 @@ class Purifier(torch.nn.Module):
         for key in odd_new.keys():
             result_odd[key] = odd_new[key] - odd_purifying[key]
         return result_even, result_odd
+    
+class Expansioner(torch.nn.Module):
+    def __init__(self, lambda_max):
+        super(Expansioner, self).__init__()
+        self.lambda_max = lambda_max
         
+    def fit(self, first_even,
+            first_odd,
+            second_even,
+            second_odd,
+            clebsch = None):
+        all_keys = list(first_even.keys()) + list(first_odd.keys()) + \
+                   list(second_even.keys()) + list(second_odd.keys())
+        all_keys = [int(el) for el in all_keys]
+        
+        self.l_max = np.max(all_keys + [self.lambda_max])
+        
+        if clebsch is None:
+            self.clebsch = ClebschGordan(self.l_max).precomputed_
+        else:
+            self.clebsch = clebsch
+            
+        self.clebsch_comb = ClebschCombining(self.clebsch, self.lambda_max)
+        self.cov_cat = CovCat()
+        
+    def forward(self, first_even, first_odd, second_even, second_odd):
+        even_even = self.clebsch_comb(first_even, second_even)
+        odd_odd = self.clebsch_comb(first_odd, second_odd)
+        even_odd = self.clebsch_comb(first_even, second_odd)
+        odd_even = self.clebsch_comb(first_odd, second_even)
+        
+        res_even = self.cov_cat([even_even, odd_odd])
+        res_odd = self.cov_cat([even_odd, odd_even])
+        return res_even, res_odd
+        
+        
+class BodyOrderIteration(torch.nn.Module):
+    def __init__(self, expansioner, purifier = None, compressor = None, clebsch = None):
+        super(BodyOrderIteration, self).__init__()
+        self.expansioner = expansioner
+        self.purifier = purifier
+        self.compressor = compressor
+        self.clebsch = clebsch
+        
+    def fit(self, even_now, odd_now, even_initial, odd_initial,
+                  even_old = None, odd_old = None):
+        self.expansioner.fit(even_now, odd_now, even_initial, odd_initial, 
+                             clebsch = self.clebsch)
+        res_even, res_odd = self.expansioner(even_now, odd_now, even_initial, odd_initial)
+        
+        if (self.purifier is not None):
+            if (even_old is None) or (odd_old is None):
+                raise ValueError("old covariants should be provided for purifier")
+            self.purifier.fit(even_old, res_even, odd_old, res_odd)
+            res_even, res_odd = self.purifier(even_old, res_even, odd_old, res_odd)
+        
+        if (self.compressor is not None):
+            self.compressor.fit(res_even, res_odd)
+            res_even, res_odd = self.compressor(res_even, res_odd)
+            
+    def forward(self, even_now, odd_now, even_initial, odd_initial,
+                      even_old = None, odd_old = None):
+        res_even, res_odd = self.expansioner(even_now, odd_now, even_initial, odd_initial)
+        
+        if self.purifier is not None:
+            if (even_old is None) or (odd_old is None):
+                raise ValueError("old covariants should be provided for purifier")
+                
+            res_even, res_odd = self.purifier(even_old, res_even, odd_old, res_odd)
+            
+        if self.compressor is not None:
+            res_even, res_odd = self.compressor(res_even, res_odd)
+        
+        return res_even, res_odd
+            
+        
+class NICE(torch.nn.Module):
+    def __init__(self, blocks):
+        super(NICE, self).__init__()
+        self.blocks = blocks
+        
+    def fit(self, even_initial, odd_initial):
+        even_now = even_initial
+        odd_now = odd_initial
+        
+        even_old = [even_initial]
+        odd_old = [odd_initial]
+        
+        for block in self.blocks:
+            block.fit(even_now, odd_now, even_initial, odd_initial,
+                      even_old, odd_old)
+            even_now, odd_now = block(even_now, odd_now, even_initial, odd_initial,
+                                      even_old, odd_old)
+            even_old.append(even_now)
+            odd_old.append(odd_now)
+            
+    def forward(self, even_initial, odd_initial):
+        even_now = even_initial
+        odd_now = odd_initial
+        
+        even_old = [even_initial]
+        odd_old = [odd_initial]
+        
+        for block in self.blocks:
+            even_now, odd_now = block(even_now, odd_now, even_initial, odd_initial,
+                                      even_old, odd_old)
+            even_old.append(even_now)
+            odd_old.append(odd_now)
+        return even_old, odd_old
        
