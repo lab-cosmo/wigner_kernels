@@ -323,6 +323,7 @@ class ClebschCombiningSingleUnrolled(torch.nn.Module):
         if (self.lambd == 0):
             m1, m2, multiplier = self.transformation[0][0]
             return (torch.sum(X1 * X2, dim = 2) * multiplier)[:, :, None]
+            #return (torch.sum(X1 * X2, dim = 2))[:, :, None]
         
         device = X1.device
         if str(device).startswith('cuda'): #the fastest algorithm depends on device
