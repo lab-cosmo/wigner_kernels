@@ -358,12 +358,28 @@ class ClebschCombiningSingle(torch.nn.Module):
         self.lambd = lambd
         self.unrolled = ClebschCombiningSingleUnrolled(clebsch, lambd)
         if task is None:
+            if (self.lambd == 0):
+                 self.l1 = (self.clebsch.shape[0] - 1) // 2
+                 self.l2 = (self.clebsch.shape[1] - 1) // 2
+                 self.transformation = precompute_transformation(clebsch, self.l1, self.l2, lambd)
             self.task = None
         else:
             self.register_buffer('task', torch.IntTensor(task))
+           
             
     def forward(self, X1, X2):
+        #print("new")
         if self.task is None:
+            if self.lambd == 0:
+                first = X1
+                second = X2
+                #print("inside:", X1.shape, X2.shape)
+                first = torch.transpose(first, 1, 2)
+                result = torch.bmm(second, first) * self.transformation[0][0][2]
+                #print(result.shape)
+                return(result.reshape(result.shape[0], -1, 1))
+                #print(result.shape)
+                #print("first: ", result[0, 0:50])
             first = X1
             second = X2
             
@@ -371,7 +387,8 @@ class ClebschCombiningSingle(torch.nn.Module):
             second = second[:, None, :, :].repeat(1, first.shape[1], 1, 1)
 
             first = first.reshape(first.shape[0], -1, first.shape[3])
-            second = second.reshape(second.shape[0], -1, second.shape[3])            
+            second = second.reshape(second.shape[0], -1, second.shape[3]) 
+            
             return self.unrolled(first, second)
         else:
             first = torch.index_select(first, 1, self.task[:, 0])
