@@ -1,6 +1,6 @@
 import sys
-sys.path.append("../code")
-from code_pytorch import *
+
+from pytorch_prototype.code_pytorch import *
 from nice.blocks import *
 from nice.utilities import *
 import numpy as np
