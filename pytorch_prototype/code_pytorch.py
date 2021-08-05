@@ -79,7 +79,7 @@ def get_jacobians(output_shape, structural_indices, target_X_der, X_pos_der,
         jacobians.index_add_(0, derivative_indices, contributions[key])       
     return jacobians
 
-def batched_jacobian_single_output(y, x):
+def batched_jacobian_single_output(y, x, retain_graph):
     
     x = list(x.items())
     x_tensors = [element[1] for element in x]
@@ -92,7 +92,7 @@ def batched_jacobian_single_output(y, x):
         output_size *= el
         
     def vjp(v):
-        grads = torch.autograd.grad(y, x_tensors, v, retain_graph = True)
+        grads = torch.autograd.grad(y, x_tensors, v, retain_graph = retain_graph)
         '''print(len(grads))
         for el in grads:
             print(el)'''
@@ -165,8 +165,14 @@ class Atomistic(torch.nn.Module):
                 raise ValueError("input should require grad for calculation of jacobians")
         predictions = self.forward(X, central_species = central_species, structural_indices = structural_indices)
         result = {}
+        total = 0
         for key in predictions.keys():
-            derivatives = batched_jacobian_single_output(predictions[key], X)
+            total += 1
+            if total == len(predictions.keys()):
+                derivatives = batched_jacobian_single_output(predictions[key], X, False)
+            else:
+                derivatives = batched_jacobian_single_output(predictions[key], X, True)
+            
             result[key] = get_jacobians(list(predictions[key].shape[1:]), structural_indices, derivatives, X_der, 
                                         central_indices, derivative_indices, device)
         return result
