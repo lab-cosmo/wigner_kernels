@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from pytorch_prototype.utilities import get_central_species, get_structural_indices
+from torch import vmap
 
 def grad_dict(outputs, inputs, **kwargs):
     outputs = list(outputs.items())
@@ -22,6 +23,7 @@ def grad_dict(outputs, inputs, **kwargs):
 
 
 def get_forces(structural_indices, target_X_der, X_pos_der, central_indices, derivative_indices, device):
+   
     
     central_indices = torch.IntTensor(central_indices).to(device)
     derivative_indices = torch.IntTensor(derivative_indices).to(device)
@@ -44,6 +46,77 @@ def get_forces(structural_indices, target_X_der, X_pos_der, central_indices, der
     for key in contributions.keys():
         forces_predictions.index_add_(0, derivative_indices, contributions[key])       
     return forces_predictions
+
+def get_jacobians(output_shape, structural_indices, target_X_der, X_pos_der,
+                  central_indices, derivative_indices, device):
+    X_pos_der_prepared = {}
+    for key in X_pos_der.keys():
+        X_pos_der_prepared[key] = X_pos_der[key]
+        for _ in range(len(output_shape)):
+            X_pos_der_prepared[key] = torch.unsqueeze(X_pos_der_prepared[key], 2)
+    
+
+    central_indices = torch.IntTensor(central_indices).to(device)
+    derivative_indices = torch.IntTensor(derivative_indices).to(device)
+
+    derivatives_aligned = {}
+    for key in target_X_der.keys():
+        derivatives_aligned[key] = torch.index_select(target_X_der[key],
+                                              0, central_indices)
+
+        derivatives_aligned[key] = torch.unsqueeze(derivatives_aligned[key], 1)
+    contributions = {}        
+    for key in X_pos_der.keys():
+        dims_sum = list(range(len(X_pos_der_prepared[key].shape)))[2 + len(output_shape):]
+        contributions[key] = torch.sum(derivatives_aligned[key]\
+                               * X_pos_der_prepared[key], dim = dims_sum)
+   
+
+    jacobians = torch.zeros([structural_indices.shape[0], 3] + output_shape,
+                                  device = device, dtype = torch.get_default_dtype())
+
+    for key in contributions.keys():
+        jacobians.index_add_(0, derivative_indices, contributions[key])       
+    return jacobians
+
+def batched_jacobian_single_output(y, x):
+    
+    x = list(x.items())
+    x_tensors = [element[1] for element in x]
+    x_keys = [element[0] for element in x]
+    y_batch_size = y.shape[0]
+    x_batch_size = x_tensors[0].shape[0]
+    
+    output_size = 1
+    for el in y.shape[1:]:
+        output_size *= el
+        
+    def vjp(v):
+        grads = torch.autograd.grad(y, x_tensors, v, retain_graph = True)
+        '''print(len(grads))
+        for el in grads:
+            print(el)'''
+        return grads
+    
+    output_grads = torch.eye(output_size, device = x_tensors[0].device)
+    #print(output_grads.shape)
+    output_grads = output_grads.repeat(y_batch_size, 1)
+    #print(output_grads.shape)
+    output_grads = output_grads.reshape([y_batch_size, -1] + list(y.shape[1:]))
+    #print(output_grads.shape)
+    output_grads = output_grads.transpose(0, 1)
+    #print(output_grads.shape)
+    result = list(vmap(vjp)(output_grads))
+    
+    for i in range(len(result)):
+        result[i] = result[i].transpose(0, 1)
+        q = [x_batch_size] + list(y.shape[1:]) + list(x_tensors[i].shape[1:])
+        result[i] = result[i].reshape(q)
+       
+    result_dict = {}
+    for i in range(len(x_keys)):
+        result_dict[x_keys[i]] = result[i]
+    return result_dict
 
 class Atomistic(torch.nn.Module):
     def __init__(self, models, accumulate = True):
@@ -82,6 +155,22 @@ class Atomistic(torch.nn.Module):
             result = self.accumulator(result, structural_indices)
         return result
     
+    def get_jacobians(self, X_der, central_indices, derivative_indices,
+                      X, central_species = None, structural_indices = None):
+        key = list(X.keys())[0]
+        device = X[key].device
+        
+        for key in X.keys():
+            if not X[key].requires_grad:
+                raise ValueError("input should require grad for calculation of jacobians")
+        predictions = self.forward(X, central_species = central_species, structural_indices = structural_indices)
+        result = {}
+        for key in predictions.keys():
+            derivatives = batched_jacobian_single_output(predictions[key], X)
+            result[key] = get_jacobians(list(predictions[key].shape[1:]), structural_indices, derivatives, X_der, 
+                                        central_indices, derivative_indices, device)
+        return result
+        
     def get_forces(self, X_der, central_indices, derivative_indices, 
                    X, central_species = None, structural_indices = None):
         key = list(X.keys())[0]
@@ -91,7 +180,13 @@ class Atomistic(torch.nn.Module):
             if not X[key].requires_grad:
                 raise ValueError("input should require grad for calculation of forces")
         predictions = self.forward(X, central_species = central_species, structural_indices = structural_indices)
+        print("predictions")
+        for key in predictions.keys():
+            print(key, predictions[key].shape)
         derivatives = grad_dict(predictions, X)
+        print("derivatives")
+        for key in derivatives.keys():
+            print(key, derivatives[key].shape)
         return get_forces(structural_indices, derivatives, X_der, central_indices, derivative_indices, device)
     
     
