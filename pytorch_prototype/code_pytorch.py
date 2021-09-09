@@ -539,3 +539,123 @@ class ClebschCombining(torch.nn.Module):
                 result[key] = torch.cat(lists[key], dim = 1)
         
         return result
+    
+class WignerCombiningSingleUnrolled(torch.nn.Module):
+    def __init__(self, clebsch, lambd, algorithm = 'vectorized'):
+        super(WignerCombiningSingleUnrolled, self).__init__()
+        self.algorithm = algorithm
+        self.lambd = lambd
+        self.l1 = (clebsch.shape[0] - 1) // 2
+        self.l2 = (clebsch.shape[1] - 1) // 2
+        self.transformation = precompute_transformation(clebsch, self.l1, self.l2, lambd)
+        
+        mu_both_now = 0
+        mu_both = np.zeros([2 * self.lambd + 1, 2 * self.lambd + 1], dtype = int)
+        for mu in range(0, 2 * self.lambd + 1):
+            for mup in range(0, 2 * self.lambd + 1):
+                mu_both[mu, mup] = mu_both_now
+                mu_both_now += 1
+                
+        
+        
+        
+        m1_aligned, m2_aligned, mu_aligned = [], [], []
+        m1p_aligned, m2p_aligned, mup_aligned = [], [], []
+        multiplier_total_aligned = []
+        mu_both_aligned = []
+        
+        for mu in range(0, 2 * self.lambd + 1):
+            for m1, m2, multiplier in self.transformation[mu]:
+                for mup in range(0, 2 * self.lambd + 1):
+                    for m1p, m2p, multiplierp in self.transformation[mup]:
+                        m1_aligned.append(m1)
+                        m2_aligned.append(m2)
+                        mu_aligned.append(mu)
+                        m1p_aligned.append(m1p)
+                        m2p_aligned.append(m2p)
+                        mup_aligned.append(mup)
+                        multiplier_total_aligned.append(multiplier * multiplierp)
+                        mu_both_aligned.append(mu_both[mu, mup])
+        
+        self.register_buffer('m1_aligned', torch.LongTensor(m1_aligned))
+        self.register_buffer('m2_aligned', torch.LongTensor(m2_aligned))
+        self.register_buffer('mu_aligned', torch.LongTensor(mu_aligned)) 
+        
+        self.register_buffer('m1p_aligned', torch.LongTensor(m1p_aligned))
+        self.register_buffer('m2p_aligned', torch.LongTensor(m2p_aligned))
+        self.register_buffer('mup_aligned', torch.LongTensor(mup_aligned))
+        
+        self.register_buffer('mu_both_aligned', torch.LongTensor(mu_both_aligned))
+        self.register_buffer('mu_both', torch.LongTensor(mu_both))
+        
+        self.register_buffer('multiplier_total_aligned',
+                             torch.tensor(multiplier_total_aligned).type(torch.get_default_dtype()))
+        
+                    
+        
+    def forward(self, X1, X2):
+        #X1[*, m1, mp1]
+        #X2[*, m2, mp2]
+        #result[*, mu, mup2] <-
+        device = X1.device
+        
+        algorithm_now = self.algorithm
+        
+        if algorithm_now == 'vectorized':
+            contributions = X1[:, self.m1_aligned, self.m1p_aligned] * X2[:, self.m2_aligned, self.m2p_aligned] \
+                            * self.multiplier_total_aligned
+            result = torch.zeros([X1.shape[0], (2 * self.lambd + 1) ** 2], device = device)
+            result.index_add_(1, self.mu_both_aligned, contributions)
+            return result[:, self.mu_both]
+            
+            '''multipliers = self.multipliers.to(device)
+            mu = self.mu.to(device)
+            contributions = X1[:, :, self.m1_aligned] * X2[:, :, self.m2_aligned] * multipliers
+
+            result = torch.zeros([X1.shape[0], X2.shape[1], 2 * self.lambd + 1], device = device)
+            result.index_add_(2, mu, contributions)
+            return result
+        
+            result = torch.zeros([X1.shape[0], 2 * self.lambd + 1, 2 * self.lambd + 1], device = device)'''
+           
+        if algorithm_now == 'loops':
+            result = torch.zeros([X1.shape[0], 2 * self.lambd + 1, 2 * self.lambd + 1], device = device)
+            for mu in range(0, 2 * self.lambd + 1):
+                for m1, m2, multiplier in self.transformation[mu]:
+                    for mup in range(0, 2 * self.lambd + 1):
+                        for m1p, m2p, multiplierp in self.transformation[mup]:
+                            result[:, mu, mup] += X1[:, m1, m1p] * X2[:, m2, m2p] * multiplier * multiplierp
+
+            return result
+    
+class WignerCombiningUnrolled(torch.nn.Module):
+    def __init__(self, clebsch, lambd_max, algorithm = 'vectorized'):
+        super(WignerCombiningUnrolled, self).__init__()
+        self.algorithm = algorithm
+        self.lambd_max = lambd_max
+        self.single_combiners = torch.nn.ModuleDict()
+        for l1 in range(clebsch.shape[0]):
+            for l2 in range(clebsch.shape[1]):
+                for lambd in range(abs(l1 - l2), min(l1 + l2, self.lambd_max) + 1):  
+                    key = '{}_{}_{}'.format(l1, l2, lambd)
+
+                    if lambd >= clebsch.shape[2]:
+                        raise ValueError("insufficient lambda max in precomputed Clebsch Gordan coefficients")
+
+                    self.single_combiners[key] = WignerCombiningSingleUnrolled(
+                        clebsch[l1, l2, lambd, :2 * l1 + 1, :2 * l2 + 1], lambd, algorithm = self.algorithm)
+                
+    def forward(self, X1, X2):
+        result = {}
+        for key1 in X1.keys():
+            for key2 in X2.keys():
+                l1 = int(key1)
+                l2 = int(key2)
+                for lambd in range(abs(l1 - l2), min(l1 + l2, self.lambd_max) + 1):                   
+                    combiner = self.single_combiners['{}_{}_{}'.format(l1, l2, lambd)] 
+                    if str(lambd) not in result.keys():
+                        result[lambd] = combiner(X1[key1], X2[key2])
+                    else:
+                        result[lambd] +=  combiner(X1[key1], X2[key2])
+        return result
+        
