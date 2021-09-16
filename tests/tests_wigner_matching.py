@@ -7,8 +7,6 @@ from pytorch_prototype.code_pytorch import *
 from pytorch_prototype.utilities import *
 from pytorch_prototype.miscellaneous import ClebschGordan
 
-from sklearn.linear_model import Ridge
-
 METHANE_PATH = '../structures/methane.extxyz'
 
 def initialize_wigner_single(first, second):
@@ -27,6 +25,7 @@ def initialize_wigner(first, second):
     for key in first.keys():
         result[key] = initialize_wigner_single(first[key], second[key])
     return result
+
 
 class WignerKernel(torch.nn.Module):
     def __init__(self, clebsch, lambda_max, num_iterations):
@@ -81,9 +80,27 @@ def get_rotated(first_structures, second_structures):
     return first_rotated_structures, second_rotated_structures
 
 
-def get_wigner_invariance_error(n_first, n_second, model, n_max, l_max):
-    
+class Powerspectrum(torch.nn.Module):
+    def __init__(self, clebsch):
+        super(Powerspectrum, self).__init__()
+        self.first = ClebschCombining(clebsch, 0)
 
+    def forward(self, X):
+        ps_invariants = self.first(X, X)
+        return ps_invariants['0'][:, :, 0]
+
+class Bispectrum(torch.nn.Module):
+    def __init__(self, clebsch, lambda_max):
+        super(Bispectrum, self).__init__()
+        self.first = ClebschCombining(clebsch, lambda_max)
+        self.second = ClebschCombining(clebsch, 0)
+
+    def forward(self, X):
+        ps_covariants = self.first(X, X)
+        bs_invariants = self.second(ps_covariants, X)
+        return bs_invariants['0'][:, :, 0]
+    
+def get_matching_relative_error(n_first, n_second, model_wigner, model_invariants, n_max, l_max):
     HYPERS = {
         'interaction_cutoff': 6.3,
         'max_radial': n_max,
@@ -94,65 +111,46 @@ def get_wigner_invariance_error(n_first, n_second, model, n_max, l_max):
         'radial_basis': 'GTO'
 
     }
-
     
     first_structures = ase.io.read(METHANE_PATH, index = f'0:{n_first}')
     second_structures = ase.io.read(METHANE_PATH, index = f'0:{n_second}')
-    first_rotated_structures, second_rotated_structures = get_rotated(first_structures, second_structures)
 
     first_coefs, second_coefs = get_coefs_both(HYPERS, first_structures, second_structures)
-    first_coefs_rotated, second_coefs_rotated = get_coefs_both(HYPERS, first_rotated_structures, second_rotated_structures)
+    
+   
     L2_mean = get_L2_mean(first_coefs)
     first_coefs, second_coefs = scale_coefs(first_coefs, second_coefs, 1.0 / L2_mean)
-    first_coefs_rotated, second_coefs_rotated = scale_coefs(first_coefs_rotated, second_coefs_rotated,
-                                                            1.0 / L2_mean)
-
     
-    kernel_initial = compute_kernel(model, first_coefs, second_coefs).data.cpu().numpy()
-    kernel_rotated = compute_kernel(model, first_coefs_rotated, second_coefs_rotated).data.cpu().numpy()
-
-    norm = np.sqrt(np.mean(kernel_initial ** 2))
-    delta = kernel_initial - kernel_rotated
-    delta = np.sqrt(np.mean(delta ** 2))
-    relative_error = delta / norm
-    #print(relative_error, delta, norm)
+    kernel_wigner = compute_kernel(model_wigner, first_coefs, second_coefs).data.cpu().numpy()
+    
+    invariants_first = model_invariants(first_coefs).data.cpu().numpy()
+    invariants_second = model_invariants(second_coefs).data.cpu().numpy()
+    kernel_invariants = np.dot(invariants_first, invariants_second.T)
+    
+    delta = kernel_wigner - kernel_invariants
+    error = np.mean(delta * delta)
+    relative_error = error / np.mean(kernel_invariants * kernel_invariants)
     return relative_error
+    
+def test_ps_kernel_matching(epsilon = 1e-8):
+    L_MAX = 5
+    N_MAX = 12
+    N_FIRST = 7
+    N_SECOND = 11
+    clebsch = ClebschGordan(L_MAX)
+    model_wigner = WignerKernel(clebsch, L_MAX, 0)
+    model_invariants = Powerspectrum(clebsch.precomputed_)
+    relative_error = get_matching_relative_error(N_FIRST, N_SECOND, model_wigner, model_invariants, N_MAX, L_MAX)
+    assert relative_error <= epsilon
    
-def test_wigner_ps_kernel_invariance(epsilon = 1e-5):
-    NUM_EXPERIMENTS = 3
-    N_MAX = 10
+def test_bs_kernel_matching(epsilon = 1e-8):
     L_MAX = 4
+    N_MAX = 4
     N_FIRST = 7
     N_SECOND = 11
     clebsch = ClebschGordan(L_MAX)
-    model = WignerKernel(clebsch, L_MAX, 0)
-    for _ in range(NUM_EXPERIMENTS):
-        relative_error = get_wigner_invariance_error(N_FIRST, N_SECOND, model, N_MAX, L_MAX)
-        assert relative_error <= epsilon
+    model_wigner = WignerKernel(clebsch, L_MAX, 1)
+    model_invariants = Bispectrum(clebsch.precomputed_, L_MAX)
+    relative_error = get_matching_relative_error(N_FIRST, N_SECOND, model_wigner, model_invariants, N_MAX, L_MAX)
+    assert relative_error <= epsilon
 
-def test_wigner_bs_kernel_invariance(epsilon = 1e-5):
-    NUM_EXPERIMENTS = 3
-    N_MAX = 10
-    L_MAX = 4
-    N_FIRST = 7
-    N_SECOND = 11
-    clebsch = ClebschGordan(L_MAX)
-    model = WignerKernel(clebsch, L_MAX, 1)
-    for _ in range(NUM_EXPERIMENTS):
-        relative_error = get_wigner_invariance_error(N_FIRST, N_SECOND, model, N_MAX, L_MAX)
-        assert relative_error <= epsilon
-    
-def test_wigner_ts_kernel_invariance(epsilon = 1e-5):
-    NUM_EXPERIMENTS = 3
-    N_MAX = 10
-    L_MAX = 4
-    N_FIRST = 7
-    N_SECOND = 11
-    clebsch = ClebschGordan(L_MAX)
-    model = WignerKernel(clebsch, L_MAX, 2)
-    for _ in range(NUM_EXPERIMENTS):
-        relative_error = get_wigner_invariance_error(N_FIRST, N_SECOND, model, N_MAX, L_MAX)
-        assert relative_error <= epsilon
-    
-
-    
