@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from pytorch_prototype.utilities import get_central_species, get_structural_indices
-from torch import vmap
+#from torch import vmap
 
 def grad_dict(outputs, inputs, **kwargs):
     outputs = list(outputs.items())
@@ -654,8 +654,8 @@ class WignerCombiningUnrolled(torch.nn.Module):
                 for lambd in range(abs(l1 - l2), min(l1 + l2, self.lambd_max) + 1):                   
                     combiner = self.single_combiners['{}_{}_{}'.format(l1, l2, lambd)] 
                     if str(lambd) not in result.keys():
-                        result[lambd] = combiner(X1[key1], X2[key2])
+                        result[str(lambd)] = combiner(X1[key1], X2[key2])
                     else:
-                        result[lambd] +=  combiner(X1[key1], X2[key2])
+                        result[str(lambd)] +=  combiner(X1[key1], X2[key2])
         return result
         
