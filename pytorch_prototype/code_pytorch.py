@@ -463,14 +463,17 @@ class ClebschCombiningSingle(torch.nn.Module):
                  self.l1 = (self.clebsch.shape[0] - 1) // 2
                  self.l2 = (self.clebsch.shape[1] - 1) // 2
                  self.transformation = precompute_transformation(clebsch, self.l1, self.l2, lambd)
-            self.task = None
+            self.has_task = False
         else:
-            self.register_buffer('task', torch.IntTensor(task))
+            self.register_buffer('task_first', torch.LongTensor(task[0]))
+            self.register_buffer('task_second', torch.LongTensor(task[1]))
+            self.has_task = True
+            
            
             
     def forward(self, X1, X2):
         #print("new")
-        if self.task is None:
+        if not self.has_task:
             if self.lambd == 0:
                 first = X1
                 second = X2
@@ -492,14 +495,14 @@ class ClebschCombiningSingle(torch.nn.Module):
             
             return self.unrolled(first, second)
         else:
-            first = torch.index_select(first, 1, self.task[:, 0])
-            second = torch.index_select(second, 1, self.task[:, 1])
+            first = X1[:, self.task_first, :]
+            second = X2[:, self.task_second, :]
             return self.unrolled(first, second)
         
            
 
 class ClebschCombining(torch.nn.Module):
-    def __init__(self, clebsch, lambd_max):
+    def __init__(self, clebsch, lambd_max, task = None):
         super(ClebschCombining, self).__init__()
         self.register_buffer('clebsch', torch.from_numpy(clebsch).type(torch.get_default_dtype()))  
         self.lambd_max = lambd_max
@@ -512,9 +515,12 @@ class ClebschCombining(torch.nn.Module):
                     
                     if lambd >= clebsch.shape[2]:
                         raise ValueError("insufficient lambda max in precomputed Clebsch Gordan coefficients")
-                        
+                    if task is None:
+                        task_now = None
+                    else:
+                        task_now = task[key]
                     self.single_combiners[key] = ClebschCombiningSingle(
-                        clebsch[l1, l2, lambd, :2 * l1 + 1, :2 * l2 + 1], lambd)                
+                        clebsch[l1, l2, lambd, :2 * l1 + 1, :2 * l2 + 1], lambd, task_now)                
         
             
         
