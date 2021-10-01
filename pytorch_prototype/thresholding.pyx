@@ -34,7 +34,7 @@ cdef int abs_c(int a) nogil:
         return -a
     
   
-cdef get_thresholded_task(double[:, :] first_importances, int[:] first_actual_sizes,
+cpdef get_thresholded_task(double[:, :] first_importances, int[:] first_actual_sizes,
                            double[:, :] second_importances, int[:] second_actual_sizes,
                            double threshold, int known_num, int l_max, Mode mode):
     if mode == Mode.covariants:
@@ -99,7 +99,27 @@ cdef get_thresholded_task_covariants(double[:, :] first_importances, int[:] firs
    
     return [ans[:pos], raw_importances[:pos]]                       
                        
-                                      
+    
+def get_amplitudes(covariants, l_max):
+    max_num = None
+    for l in covariants.keys():
+        if int(l) > l_max:
+            raise ValueError("insufficient l_max")
+        if (max_num is None) or (covariants[l].shape[1] > max_num):
+            max_num = covariants[l].shape[1]
+    result = -1.0 * np.ones([max_num, l_max + 1])
+    nums = np.zeros(l_max + 1, dtype = np.int32)
+    for l in covariants.keys():
+        squares = covariants[l].data.cpu().numpy() ** 2
+        amplitudes = np.mean(squares.sum(axis = 2), axis = 0)
+        for index in range(1, len(amplitudes)):
+            if amplitudes[index] > amplitudes[index - 1]:
+                raise ValueError("covariants should be sorted in descending order of their variance")
+        result[:covariants[l].shape[1], int(l)] = amplitudes
+        
+        nums[int(l)] = covariants[l].shape[1]
+    return result, nums
+
 cpdef get_thresholded_tasks(first_even, first_odd, second_even, second_odd, int desired_num, int l_max, mode_string):
     
     cdef Mode mode
@@ -110,43 +130,43 @@ cpdef get_thresholded_tasks(first_even, first_odd, second_even, second_odd, int 
   
     cdef double threshold_even
     cdef int num_even_even, num_odd_odd
-    threshold_even, num_even_even, num_odd_odd = get_threshold(first_even.importances_, first_even.actual_sizes_,
-                                                               second_even.importances_, second_even.actual_sizes_,
-                                                               first_odd.importances_, first_odd.actual_sizes_,
-                                                               second_odd.importances_, second_odd.actual_sizes_,
+    threshold_even, num_even_even, num_odd_odd = get_threshold(*get_amplitudes(first_even, l_max),
+                                                               *get_amplitudes(second_even, l_max),
+                                                               *get_amplitudes(first_odd, l_max),
+                                                               *get_amplitudes(second_odd, l_max),
                                                                desired_num, mode)
     
     cdef double threshold_odd
     cdef int num_even_odd, num_odd_even
-    threshold_odd, num_even_odd, num_odd_even = get_threshold(first_even.importances_, first_even.actual_sizes_,
-                                                              second_odd.importances_, second_odd.actual_sizes_,
-                                                              first_odd.importances_, first_odd.actual_sizes_,
-                                                              second_even.importances_, second_even.actual_sizes_,
+    threshold_odd, num_even_odd, num_odd_even = get_threshold(*get_amplitudes(first_even, l_max),
+                                                              *get_amplitudes(second_odd, l_max),
+                                                              *get_amplitudes(first_odd, l_max),
+                                                              *get_amplitudes(second_even, l_max),
                                                               desired_num, mode)        
       
     
     
-    task_even_even = get_thresholded_task(first_even.importances_, first_even.actual_sizes_,
-                                          second_even.importances_, second_even.actual_sizes_, 
+    task_even_even = get_thresholded_task(*get_amplitudes(first_even, l_max),
+                                          *get_amplitudes(second_even, l_max),
                                           threshold_even, num_even_even, l_max, mode)
     
-    task_odd_odd = get_thresholded_task(first_odd.importances_, first_odd.actual_sizes_,
-                                        second_odd.importances_, second_odd.actual_sizes_,
+    task_odd_odd = get_thresholded_task(*get_amplitudes(first_odd, l_max),
+                                        *get_amplitudes(second_odd, l_max),
                                         threshold_even, num_odd_odd, l_max, mode)
     
-    task_even_odd = get_thresholded_task(first_even.importances_, first_even.actual_sizes_,
-                                         second_odd.importances_, second_odd.actual_sizes_,
+    task_even_odd = get_thresholded_task(*get_amplitudes(first_even, l_max),
+                                         *get_amplitudes(second_odd, l_max),
                                          threshold_odd, num_even_odd, l_max, mode)
     
-    task_odd_even = get_thresholded_task(first_odd.importances_, first_odd.actual_sizes_,
-                                         second_even.importances_, second_even.actual_sizes_,
+    task_odd_even = get_thresholded_task(*get_amplitudes(first_odd, l_max),
+                                         *get_amplitudes(second_even, l_max),
                                          threshold_odd, num_odd_even, l_max, mode)
     
     return task_even_even, task_odd_odd, task_even_odd, task_odd_even
                            
                            
                            
-cdef get_threshold(double[:, :] first_importances_1, int[:] first_actual_sizes_1,
+cpdef get_threshold(double[:, :] first_importances_1, int[:] first_actual_sizes_1,
                    double[:, :] second_importances_1, int[:] second_actual_sizes_1,
                    double[:, :] first_importances_2, int[:] first_actual_sizes_2,
                    double[:, :] second_importances_2, int[:] second_actual_sizes_2,

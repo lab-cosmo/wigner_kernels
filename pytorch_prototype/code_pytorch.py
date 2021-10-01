@@ -458,16 +458,19 @@ class ClebschCombiningSingle(torch.nn.Module):
         self.register_buffer('clebsch', torch.from_numpy(clebsch).type(torch.get_default_dtype()))
         self.lambd = lambd
         self.unrolled = ClebschCombiningSingleUnrolled(clebsch, lambd)
-        if task is None:
+        if (task is None):
+            self.has_task = False
             if (self.lambd == 0):
                  self.l1 = (self.clebsch.shape[0] - 1) // 2
                  self.l2 = (self.clebsch.shape[1] - 1) // 2
                  self.transformation = precompute_transformation(clebsch, self.l1, self.l2, lambd)
-            self.has_task = False
         else:
+            if len(task[0]) == 0:
+                raise ValueError("task shouldn't be empty")
             self.register_buffer('task_first', torch.LongTensor(task[0]))
             self.register_buffer('task_second', torch.LongTensor(task[1]))
             self.has_task = True
+            
             
            
             
@@ -519,8 +522,9 @@ class ClebschCombining(torch.nn.Module):
                         task_now = None
                     else:
                         task_now = task[key]
-                    self.single_combiners[key] = ClebschCombiningSingle(
-                        clebsch[l1, l2, lambd, :2 * l1 + 1, :2 * l2 + 1], lambd, task_now)                
+                    if (task_now is None) or (len(task_now[0]) > 0):
+                        self.single_combiners[key] = ClebschCombiningSingle(
+                            clebsch[l1, l2, lambd, :2 * l1 + 1, :2 * l2 + 1], lambd, task_now)                
         
             
         
@@ -533,9 +537,11 @@ class ClebschCombining(torch.nn.Module):
             for key2 in X2.keys():
                 l1 = int(key1)
                 l2 = int(key2)
-                for lambd in range(abs(l1 - l2), min(l1 + l2, self.lambd_max) + 1):                   
-                    combiner = self.single_combiners['{}_{}_{}'.format(l1, l2, lambd)]                   
-                    lists[str(lambd)].append(combiner(X1[key1], X2[key2]))
+                for lambd in range(abs(l1 - l2), min(l1 + l2, self.lambd_max) + 1):
+                    key = '{}_{}_{}'.format(l1, l2, lambd)
+                    if key in self.single_combiners.keys():
+                        combiner = self.single_combiners[key]                   
+                        lists[str(lambd)].append(combiner(X1[key1], X2[key2]))
                     #print('{}_{}_{}'.format(l1, l2, lambd), result[lambd][-1].sum())
                     #print(X1[key1].shape, X2[key2].shape, result[str(lambd)][-1].shape)
                     
