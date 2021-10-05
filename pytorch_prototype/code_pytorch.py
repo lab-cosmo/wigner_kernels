@@ -251,6 +251,9 @@ class CovLinear(torch.nn.Module):
             self.out_shape = {}
             for key in self.in_shape.keys():
                 self.out_shape[key] = out_shape
+        if set(in_shape.keys()) != set(out_shape.keys()):
+            raise ValueError("sets of keys of in_shape and out_shape must be the same")
+            
         linears = {}
         for key in self.in_shape.keys():
             linears[key] = torch.nn.Linear(self.in_shape[key], 
@@ -259,7 +262,9 @@ class CovLinear(torch.nn.Module):
         
     def forward(self, features):
         result = {}
-        for key in self.linears.keys():
+        for key in features.keys():
+            if key not in self.linears.keys():
+                raise ValueError(f"key {key} in the features was not present in the initialization")
             now = features[key].transpose(1, 2)
             now = self.linears[key](now)
             now = now.transpose(1, 2)

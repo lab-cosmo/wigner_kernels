@@ -5,6 +5,7 @@ from pytorch_prototype.code_pytorch import *
 from pytorch_prototype.miscellaneous import ClebschGordan
 from sklearn.decomposition import TruncatedSVD
 from pytorch_prototype.thresholding import get_thresholded_tasks
+from sklearn.linear_model import Ridge
 
 class Compressor(torch.nn.Module):
     def __init__(self, n_components = None):
@@ -55,12 +56,15 @@ class Compressor(torch.nn.Module):
         return self.even_linear(even), self.odd_linear(odd)
     
 class Purifier(torch.nn.Module):
-    def __init__(self, regressor):
+    def __init__(self, alpha):
         super(Purifier, self).__init__()
-        self.regressor = regressor
-        self.regressor.set_params(**{"fit_intercept": False})
+        self.regressor = Ridge(alpha = alpha, fit_intercept = False)
         self.cov_cat = CovCat()
         
+    def get_active_keys(self, old_covs, new_covs):
+        old_covs = self.cov_cat(old_covs)
+        return [key for key in old_covs.keys() if key in new_covs.keys()]
+    
     def get_linear(self, old_covs, new_covs):
         old_covs = self.cov_cat(old_covs)
         in_shape = {key : value.shape[1] for key, value in old_covs.items() if key in new_covs.keys()}
@@ -85,15 +89,18 @@ class Purifier(torch.nn.Module):
         self.even_linear = self.get_linear(even_old, even_new)
         self.odd_linear = self.get_linear(odd_old, odd_new)
         
+        self.even_active_keys = self.get_active_keys(even_old, even_new)
+        self.odd_active_keys = self.get_active_keys(odd_old, odd_new)
+        
     def forward(self, even_old, even_new, odd_old, odd_new):
         even_old = self.cov_cat(even_old)
         odd_old = self.cov_cat(odd_old)
         
+        even_old = {key : even_old[key] for key in self.even_active_keys}
+        odd_old = {key : odd_old[key] for key in self.odd_active_keys}
+        
         even_purifying = self.even_linear(even_old)
         odd_purifying = self.odd_linear(odd_old)
-        
-        #for key in even_purifying.keys():
-        #    print(key, even_purifying[key].shape)
            
         result_even = {}
         for key in even_new.keys():
