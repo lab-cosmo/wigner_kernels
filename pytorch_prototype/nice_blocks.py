@@ -133,22 +133,21 @@ def convert_task(task, l_max, lambda_max, first_indices, second_indices):
                 result[f'{l1}_{l2}_{lambd}'] = [[], []]
         
     for index in range(task.shape[0]):
-        first_ind, l1, second_ind, l2 = task[index]
-        for lambd in range(abs(l1 - l2), min(l1 + l2, lambda_max) + 1):
-            key = f'{l1}_{l2}_{lambd}'
-            
-            # new[i] = old[indices[i]]
-            # old[i] = new[inverted_indices[i]]
-            
-            # need that new[task[i]] = old[processed_task[i]]
-            # we have that new[task[i]] = old[indices[task[i]]]
-            # so, put processed_task[i] <- indices[task[i]]
-            
-            first_ind = first_indices[str(l1)][first_ind]
-            second_ind = second_indices[str(l2)][second_ind]
-            
-            result[key][0].append(first_ind)
-            result[key][1].append(second_ind)
+        first_ind, l1, second_ind, l2, lambd = task[index]
+        key = f'{l1}_{l2}_{lambd}'
+
+        # new[i] = old[indices[i]]
+        # old[i] = new[inverted_indices[i]]
+
+        # need that new[task[i]] = old[processed_task[i]]
+        # we have that new[task[i]] = old[indices[task[i]]]
+        # so, put processed_task[i] <- indices[task[i]]
+
+        first_ind = first_indices[str(l1)][first_ind]
+        second_ind = second_indices[str(l2)][second_ind]
+
+        result[key][0].append(first_ind)
+        result[key][1].append(second_ind)
     return result
 
 def get_sorting_indices(covariants):
@@ -205,13 +204,13 @@ class Expansioner(torch.nn.Module):
                                       self.l_max, self.lambda_max)
             
             
-            task_even_even = convert_task(task_even_even[0], self.l_max, self.lambda_max,
+            task_even_even = convert_task(task_even_even, self.l_max, self.lambda_max,
                                          first_even_idx, second_even_idx)
-            task_odd_odd = convert_task(task_odd_odd[0], self.l_max, self.lambda_max,
+            task_odd_odd = convert_task(task_odd_odd, self.l_max, self.lambda_max,
                                         first_odd_idx, second_odd_idx)
-            task_even_odd = convert_task(task_even_odd[0], self.l_max, self.lambda_max,
+            task_even_odd = convert_task(task_even_odd, self.l_max, self.lambda_max,
                                         first_even_idx, second_odd_idx)
-            task_odd_even = convert_task(task_odd_even[0], self.l_max, self.lambda_max,
+            task_odd_even = convert_task(task_odd_even, self.l_max, self.lambda_max,
                                         first_odd_idx, second_even_idx)
             
             self.has_tasks = True
