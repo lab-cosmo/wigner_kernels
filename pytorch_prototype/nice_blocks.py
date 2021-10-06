@@ -293,7 +293,7 @@ class BodyOrderIteration(torch.nn.Module):
         
 
 class NICE(torch.nn.Module):
-    def __init__(self, blocks, initial_compressor = None):
+    def __init__(self, blocks, initial_compressor):
         super(NICE, self).__init__()
         self.blocks = blocks
         self.initial_compressor = initial_compressor
