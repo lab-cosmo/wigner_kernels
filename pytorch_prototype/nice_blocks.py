@@ -293,15 +293,17 @@ class BodyOrderIteration(torch.nn.Module):
         
 
 class NICE(torch.nn.Module):
-    def __init__(self, blocks):
+    def __init__(self, blocks, initial_compressor = None):
         super(NICE, self).__init__()
         self.blocks = blocks
-        self.initial_compressor = Compressor()
+        self.initial_compressor = initial_compressor
+        
         
     def fit(self, even_initial, odd_initial):
-        self.initial_compressor.fit(even_initial, odd_initial)
-        even_initial, odd_initial = self.initial_compressor(even_initial, odd_initial)
-        
+        if self.initial_compressor is not None:
+            self.initial_compressor.fit(even_initial, odd_initial)
+            even_initial, odd_initial = self.initial_compressor(even_initial, odd_initial)
+
         even_now = even_initial
         odd_now = odd_initial
         
@@ -317,7 +319,9 @@ class NICE(torch.nn.Module):
             odd_old.append(odd_now)
             
     def forward(self, even_initial, odd_initial):
-        even_initial, odd_initial  = self.initial_compressor(even_initial, odd_initial)
+        if self.initial_compressor is not None:
+            even_initial, odd_initial  = self.initial_compressor(even_initial, odd_initial)
+        
         even_now = even_initial
         odd_now = odd_initial
         
