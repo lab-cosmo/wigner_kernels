@@ -5,7 +5,7 @@ from pytorch_prototype.code_pytorch import *
 from pytorch_prototype.miscellaneous import ClebschGordan
 from sklearn.decomposition import TruncatedSVD
 from pytorch_prototype.thresholding import get_thresholded_tasks
-from sklearn.linear_model import Ridge
+from sklearn.linear_model import Ridge, BayesianRidge
 
 class Compressor(torch.nn.Module):
     def __init__(self, n_components = None):
@@ -384,11 +384,11 @@ class NICE(torch.nn.Module):
             if inv_block is not None:
                 even_inv_now, odd_inv_now = inv_block(even_now, odd_now, even_initial, odd_initial,
                                           even_old, odd_old)
-                even_invs[body_order_now] = filter_invariants(even_inv_now)
-                odd_invs[body_order_now] = filter_invariants(odd_inv_now)
+                even_invs[str(body_order_now)] = filter_invariants(even_inv_now)
+                odd_invs[str(body_order_now)] = filter_invariants(odd_inv_now)
             else:
-                even_invs[body_order_now] = filter_invariants(even_now)
-                odd_invs[body_order_now] = filter_invariants(odd_now)
+                even_invs[str(body_order_now)] = filter_invariants(even_now)
+                odd_invs[str(body_order_now)] = filter_invariants(odd_now)
                 
             
             if cov_block is not None:
