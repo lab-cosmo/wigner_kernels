@@ -135,7 +135,7 @@ class Atomistic(torch.nn.Module):
         if self.accumulate:
             self.accumulator = Accumulator()
         
-    def forward(self, X, central_species = None, structural_indices = None):
+    def forward(self, X, central_species = None, structural_indices = None, n_structures = None):
         if self.central_specific:
             if central_species is None:
                 raise ValueError("central species should be provided for central specie specific model")
@@ -152,7 +152,9 @@ class Atomistic(torch.nn.Module):
         if self.accumulate:
             if structural_indices is None:
                 raise ValueError("structural indices should be provided to accumulate structural targets")
-            result = self.accumulator(result, structural_indices)
+            if n_structures is None:
+                raise ValueError("number of structures should be provided to accumulate structural targets")
+            result = self.accumulator(result, structural_indices, n_structures)
         return result
     
     def get_jacobians(self, X_der, central_indices, derivative_indices,
@@ -200,7 +202,7 @@ class Accumulator(torch.nn.Module):
     def __init__(self): 
         super(Accumulator, self).__init__()
         
-    def forward(self, features, structural_indices):
+    def forward(self, features, structural_indices, n_structures):
         
         key = list(features.keys())[0]
         device = features[key].device
@@ -209,8 +211,7 @@ class Accumulator(torch.nn.Module):
             structural_indices = torch.IntTensor(structural_indices).to(device)
         else:
             structural_indices = structural_indices.to(device)
-            
-        n_structures = torch.max(structural_indices) + 1
+       
         shapes = {}
         
         for key, value in features.items():
