@@ -381,24 +381,25 @@ class NICE(torch.nn.Module):
             body_order_now += 1
             cov_block, inv_block = NICE.convert_block(current)
             
+            if cov_block is not None:
+                even_new, odd_new = cov_block(even_now, odd_now, even_initial, odd_initial,
+                                          even_old, odd_old)
+            else:
+                even_new, odd_new = None, None
+            
             if inv_block is not None:
                 even_inv_now, odd_inv_now = inv_block(even_now, odd_now, even_initial, odd_initial,
                                           even_old, odd_old)
                 even_invs[str(body_order_now)] = filter_invariants(even_inv_now)
                 odd_invs[str(body_order_now)] = filter_invariants(odd_inv_now)
             else:
-                even_invs[str(body_order_now)] = filter_invariants(even_now)
-                odd_invs[str(body_order_now)] = filter_invariants(odd_now)
-                
-            
-            if cov_block is not None:
-                even_now, odd_now = cov_block(even_now, odd_now, even_initial, odd_initial,
-                                          even_old, odd_old)
-            else:
-                even_now, odd_now = None, None
-                
+                even_invs[str(body_order_now)] = filter_invariants(even_new)
+                odd_invs[str(body_order_now)] = filter_invariants(odd_new)                 
             
                 
+            even_now = even_new
+            odd_now = odd_new
+            
             even_old.append(even_now)
             odd_old.append(odd_now)
             
