@@ -1,6 +1,6 @@
 import torch
 
-def filter_invariants(covs):
+def _filter_invariants(covs):
     if '0' in covs.keys():
         return covs['0'][:, :, 0]
     else:

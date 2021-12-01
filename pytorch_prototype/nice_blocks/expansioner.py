@@ -5,7 +5,7 @@ from pytorch_prototype.thresholding import get_thresholded_tasks
 from pytorch_prototype.basic_operations import CovCat
 from pytorch_prototype.code_pytorch import ClebschCombining
 
-def convert_task(task, l_max, lambda_max, first_indices, second_indices):
+def _convert_task(task, l_max, lambda_max, first_indices, second_indices):
     for key in first_indices.keys():
         if (type(key) != str):
             raise ValueError("wrong key")
@@ -38,7 +38,7 @@ def convert_task(task, l_max, lambda_max, first_indices, second_indices):
         result[key][1].append(second_ind)
     return result
 
-def get_sorting_indices(covariants):
+def _get_sorting_indices(covariants):
     indices = {}
     for key in covariants.keys():
         squares = covariants[key].data.cpu().numpy() ** 2
@@ -47,7 +47,7 @@ def get_sorting_indices(covariants):
         indices[key] = torch.LongTensor(indices_now, device = covariants[key].device)
     return indices
     
-def apply_indices(covariants, indices):
+def _apply_indices(covariants, indices):
     result = {}
     for key in covariants.keys():
         result[key] = covariants[key][:, indices[key]]
