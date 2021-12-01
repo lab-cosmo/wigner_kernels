@@ -83,8 +83,8 @@ class NICE(torch.nn.Module):
         odd_old = [odd_initial]
         
         body_order_now = 1
-        even_invs = {str(body_order_now) : filter_invariants(even_initial)}
-        odd_invs = {str(body_order_now) : filter_invariants(odd_initial)}
+        even_invs = {str(body_order_now) : _filter_invariants(even_initial)}
+        odd_invs = {str(body_order_now) : _filter_invariants(odd_initial)}
       
         
         for current in self.blocks:
@@ -100,11 +100,11 @@ class NICE(torch.nn.Module):
             if inv_block is not None:
                 even_inv_now, odd_inv_now = inv_block(even_now, odd_now, even_initial, odd_initial,
                                           even_old, odd_old)
-                even_invs[str(body_order_now)] = filter_invariants(even_inv_now)
-                odd_invs[str(body_order_now)] = filter_invariants(odd_inv_now)
+                even_invs[str(body_order_now)] = _filter_invariants(even_inv_now)
+                odd_invs[str(body_order_now)] = _filter_invariants(odd_inv_now)
             else:
-                even_invs[str(body_order_now)] = filter_invariants(even_new)
-                odd_invs[str(body_order_now)] = filter_invariants(odd_new)                 
+                even_invs[str(body_order_now)] = _filter_invariants(even_new)
+                odd_invs[str(body_order_now)] = _filter_invariants(odd_new)                 
             
                 
             even_now = even_new

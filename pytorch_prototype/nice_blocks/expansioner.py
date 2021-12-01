@@ -3,7 +3,7 @@ import numpy as np
 from pytorch_prototype.miscellaneous import ClebschGordan
 from pytorch_prototype.thresholding import get_thresholded_tasks
 from pytorch_prototype.basic_operations import CovCat
-from pytorch_prototype.code_pytorch import ClebschCombining
+from pytorch_prototype.clebsch_combining import ClebschCombining
 
 def _convert_task(task, l_max, lambda_max, first_indices, second_indices):
     for key in first_indices.keys():
@@ -77,28 +77,28 @@ class Expansioner(torch.nn.Module):
             self.clebsch = clebsch
             
         if self.num_expand is not None:
-            first_even_idx = get_sorting_indices(first_even)
-            first_odd_idx = get_sorting_indices(first_odd)
-            second_even_idx = get_sorting_indices(second_even)
-            second_odd_idx = get_sorting_indices(second_odd)
+            first_even_idx = _get_sorting_indices(first_even)
+            first_odd_idx = _get_sorting_indices(first_odd)
+            second_even_idx = _get_sorting_indices(second_even)
+            second_odd_idx = _get_sorting_indices(second_odd)
     
-            first_even = apply_indices(first_even, first_even_idx)
-            first_odd = apply_indices(first_odd, first_odd_idx)
-            second_even = apply_indices(second_even, second_even_idx)
-            second_odd = apply_indices(second_odd, second_odd_idx)
+            first_even = _apply_indices(first_even, first_even_idx)
+            first_odd = _apply_indices(first_odd, first_odd_idx)
+            second_even = _apply_indices(second_even, second_even_idx)
+            second_odd = _apply_indices(second_odd, second_odd_idx)
           
             task_even_even, task_odd_odd, task_even_odd, task_odd_even = \
                 get_thresholded_tasks(first_even, first_odd, second_even, second_odd, self.num_expand,
                                       self.l_max, self.lambda_max)
             
             
-            task_even_even = convert_task(task_even_even, self.l_max, self.lambda_max,
+            task_even_even = _convert_task(task_even_even, self.l_max, self.lambda_max,
                                          first_even_idx, second_even_idx)
-            task_odd_odd = convert_task(task_odd_odd, self.l_max, self.lambda_max,
+            task_odd_odd = _convert_task(task_odd_odd, self.l_max, self.lambda_max,
                                         first_odd_idx, second_odd_idx)
-            task_even_odd = convert_task(task_even_odd, self.l_max, self.lambda_max,
+            task_even_odd = _convert_task(task_even_odd, self.l_max, self.lambda_max,
                                         first_even_idx, second_odd_idx)
-            task_odd_even = convert_task(task_odd_even, self.l_max, self.lambda_max,
+            task_odd_even = _convert_task(task_odd_even, self.l_max, self.lambda_max,
                                         first_odd_idx, second_even_idx)
             
             self.has_tasks = True
