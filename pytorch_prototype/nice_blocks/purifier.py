@@ -1,3 +1,6 @@
+import torch
+from pytorch_prototype.basic_operations import CovLinear, CovCat
+
 class Purifier(torch.nn.Module):
     def __init__(self, alpha):
         super(Purifier, self).__init__()

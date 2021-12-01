@@ -1,4 +1,10 @@
-    
+import torch
+import numpy as np
+from pytorch_prototype.miscellaneous import ClebschGordan
+from pytorch_prototype.thresholding import get_thresholded_tasks
+from pytorch_prototype.basic_operations import CovCat
+from pytorch_prototype.code_pytorch import ClebschCombining
+
 def convert_task(task, l_max, lambda_max, first_indices, second_indices):
     for key in first_indices.keys():
         if (type(key) != str):

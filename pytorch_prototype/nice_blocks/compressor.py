@@ -1,5 +1,7 @@
 import torch
-import torch.nn as nn
+from pytorch_prototype.basic_operations import CovLinear
+from sklearn.decomposition import TruncatedSVD
+import numpy as np
 
 class Compressor(torch.nn.Module):
     def __init__(self, n_components = None):
