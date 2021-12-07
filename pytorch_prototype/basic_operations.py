@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from typing import List, Dict
 
 class CovLinear(torch.nn.Module):
     def __init__(self, in_shape, out_shape):
@@ -20,30 +21,36 @@ class CovLinear(torch.nn.Module):
                                            self.out_shape[key], bias = False)
         self.linears = nn.ModuleDict(linears)
         
-    def forward(self, features):
-        result = {}
+    def forward(self, features : Dict[str, torch.Tensor]):
+        
         for key in features.keys():
             if key not in self.linears.keys():
                 raise ValueError(f"key {key} in the features was not present in the initialization")
-            now = features[key].transpose(1, 2)
-            now = self.linears[key](now)
-            now = now.transpose(1, 2)
-            result[key] = now
+                
+        result = {}      
+        for key, linear in self.linears.items():
+            if key in features.keys():
+                now = features[key].transpose(1, 2)
+                now = linear(now)
+                now = now.transpose(1, 2)
+                result[key] = now
         return result
     
 class CovCat(torch.nn.Module):
     def __init__(self):
         super(CovCat, self).__init__()
-    def forward(self, covariants):
-        all_keys = set()
+        
+    def forward(self, covariants : List[Dict[str, torch.Tensor]]):
+        result : Dict[str, List[torch.Tensor]] = {}
         for el in covariants:
-            all_keys.update(set(el.keys()))
-        result = {}
-        for key in all_keys:
-            now = []
-            for el in covariants:
-                if key in el.keys():
-                    now.append(el[key])
-            result[key] = torch.cat(now, dim = 1)
-        return result
+            for key, tensor in el.items():
+                if key in result.keys():
+                    result[key].append(tensor)
+                else:
+                    result[key] = [tensor]
+        ans : Dict[str, torch.Tensor] = {}
+        for key in result.keys():
+            ans[key] = torch.cat(result[key], dim = 1)
+        
+        return ans
     

@@ -148,12 +148,12 @@ def convert_rascal_coefficients(features, n_max, n_types, l_max):
     
     result = {}
     for l in range(l_max + 1):
-        result[l] = np.empty([features.shape[0], n_radial, 2 * l + 1])
+        result[str(l)] = np.empty([features.shape[0], n_radial, 2 * l + 1])
     now = 0
     for n in range(n_radial):
         for l in range(l_max + 1):
             for m in range(-l, l + 1):
-                result[l][:, n, m + l] = features[:, now]                
+                result[str(l)][:, n, m + l] = features[:, now]                
                 now += 1
     #for l in range(l_max + 1):
     #    result[l] = torch.from_numpy(result[l]).type(torch.get_default_dtype())        

@@ -1,6 +1,7 @@
 import torch
+from typing import Dict
 
-def _filter_invariants(covs):
+def _filter_invariants(covs : Dict[str, torch.Tensor]):
     if '0' in covs.keys():
         return covs['0'][:, :, 0]
     else:
@@ -31,18 +32,27 @@ class NICE(torch.nn.Module):
     def __init__(self, blocks, initial_compressor):
         super(NICE, self).__init__()
         
-        self.blocks = blocks
-        self.initial_compressor = initial_compressor
-        for block in self.blocks:
+        for block in blocks:
             if NICE.is_empty(block):
                 raise ValueError("fully empty blocks should not present")
         
-        for i, block in enumerate(self.blocks):
-            if (not NICE.computes_covariants(block)) and (i + 1 < len(self.blocks)):
+        for i, block in enumerate(blocks):
+            if (not NICE.computes_covariants(block)) and (i + 1 < len(blocks)):
                 raise ValueError("all inner blocks should compute covariants (should have covariant branch)")
                 
+        cov_blocks, inv_blocks = [], []
+        for block in blocks:
+            cov_block, inv_block = NICE.convert_block(block)
+            cov_blocks.append(cov_block)
+            inv_blocks.append(inv_block)
         
+        self.cov_blocks = torch.nn.ModuleList(cov_blocks)
+        self.inv_blocks = torch.nn.ModuleList(inv_blocks)
         
+      
+        self.initial_compressor = initial_compressor
+        
+                
     def fit(self, even_initial, odd_initial):
         if self.initial_compressor is not None:
             self.initial_compressor.fit(even_initial, odd_initial)
@@ -54,8 +64,7 @@ class NICE(torch.nn.Module):
         even_old = [even_initial]
         odd_old = [odd_initial]
         
-        for block in self.blocks:
-            cov_block, inv_block = NICE.convert_block(block)
+        for cov_block, inv_block in zip(self.cov_blocks, self.inv_blocks):
             if cov_block is not None:
                 cov_block.fit(even_now, odd_now, even_initial, odd_initial,
                       even_old, odd_old)
@@ -72,7 +81,7 @@ class NICE(torch.nn.Module):
             even_old.append(even_now)
             odd_old.append(odd_now)
             
-    def forward(self, even_initial, odd_initial, return_covariants = False):
+    def forward(self, even_initial : Dict[str, torch.Tensor], odd_initial : Dict[str, torch.Tensor]):
         if self.initial_compressor is not None:
             even_initial, odd_initial  = self.initial_compressor(even_initial, odd_initial)
         
@@ -86,10 +95,15 @@ class NICE(torch.nn.Module):
         even_invs = {str(body_order_now) : _filter_invariants(even_initial)}
         odd_invs = {str(body_order_now) : _filter_invariants(odd_initial)}
       
-        
-        for current in self.blocks:
+        #print("len blocks: ", len(self.cov_blocks), len(self.inv_blocks))
+        #for i in range(len(self.cov_blocks)):
+        #    cov_block = self.cov_blocks[i]
+        #    inv_block = self.inv_blocks[i]
+        for cov_block, inv_block in zip(self.cov_blocks, self.inv_blocks):
             body_order_now += 1
-            cov_block, inv_block = NICE.convert_block(current)
+            #print(body_order_now)
+            
+           
             
             if cov_block is not None:
                 even_new, odd_new = cov_block(even_now, odd_now, even_initial, odd_initial,
@@ -113,14 +127,17 @@ class NICE(torch.nn.Module):
             even_old.append(even_now)
             odd_old.append(odd_now)
             
-        if return_covariants:
-            even_dict, odd_dict = {}, {}
-            for body_order in range(len(even_old)):
-                even_dict[str(body_order + 1)] = even_old[body_order]
-            
-            for body_order in range(len(odd_old)):
-                odd_dict[str(body_order + 1)] = odd_old[body_order]
-                
-            return even_invs, odd_invs, even_dict, odd_dict
-        else:
-            return even_invs, odd_invs
+        #if return_covariants:
+        even_dict : Dict[str, Dict[str, torch.Tensor]] = {}
+        odd_dict : Dict[str, Dict[str, torch.Tensor]] = {}
+
+
+        for body_order in range(len(even_old)):
+            even_dict[str(body_order + 1)] = even_old[body_order]
+
+        for body_order in range(len(odd_old)):
+            odd_dict[str(body_order + 1)] = odd_old[body_order]
+
+        return even_invs, odd_invs, even_dict, odd_dict
+        #else:
+        #    return even_invs, odd_invs

@@ -1,9 +1,10 @@
 import torch
 import numpy as np
-from pytorch_prototype.miscellaneous import ClebschGordan
+from pytorch_prototype.clebsch_gordan import ClebschGordan
 from pytorch_prototype.thresholding import get_thresholded_tasks
 from pytorch_prototype.basic_operations import CovCat
 from pytorch_prototype.clebsch_combining import ClebschCombining
+from typing import Dict
 
 def _convert_task(task, l_max, lambda_max, first_indices, second_indices):
     for key in first_indices.keys():
@@ -58,6 +59,7 @@ class Expansioner(torch.nn.Module):
         super(Expansioner, self).__init__()
         self.lambda_max = lambda_max
         self.num_expand = num_expand
+        self.cov_cat = CovCat()
         
     def fit(self, first_even,
             first_odd,
@@ -101,38 +103,33 @@ class Expansioner(torch.nn.Module):
             task_odd_even = _convert_task(task_odd_even, self.l_max, self.lambda_max,
                                         first_odd_idx, second_even_idx)
             
-            self.has_tasks = True
-        else:
-            self.has_tasks = False
-            
-        if self.has_tasks:
-            self.even_even_comb = ClebschCombining(self.clebsch, self.lambda_max, task =
-                                                   task_even_even)
-            self.odd_odd_comb = ClebschCombining(self.clebsch, self.lambda_max, task =
-                                                   task_odd_odd)
-            
-            self.even_odd_comb = ClebschCombining(self.clebsch, self.lambda_max, task =
-                                                   task_even_odd)
-            
-            self.odd_even_comb = ClebschCombining(self.clebsch, self.lambda_max, task =
-                                                   task_odd_even)
             
         else:
-            self.comb = ClebschCombining(self.clebsch, self.lambda_max)
-            
-        self.cov_cat = CovCat()
+           
+            task_even_even = None
+            task_odd_odd = None
+            task_even_odd = None
+            task_odd_even = None
+       
         
-    def forward(self, first_even, first_odd, second_even, second_odd):
-        if self.has_tasks:
-            even_even = self.even_even_comb(first_even, second_even)
-            odd_odd = self.odd_odd_comb(first_odd, second_odd)
-            even_odd = self.even_odd_comb(first_even, second_odd)
-            odd_even = self.odd_even_comb(first_odd, second_even)
-        else:
-            even_even = self.comb(first_even, second_even)
-            odd_odd = self.comb(first_odd, second_odd)
-            even_odd = self.comb(first_even, second_odd)
-            odd_even = self.comb(first_odd, second_even)
+        self.even_even_comb = ClebschCombining(self.clebsch, self.lambda_max, task =
+                                               task_even_even)
+        self.odd_odd_comb = ClebschCombining(self.clebsch, self.lambda_max, task =
+                                               task_odd_odd)
+        self.even_odd_comb = ClebschCombining(self.clebsch, self.lambda_max, task =
+                                               task_even_odd)
+        self.odd_even_comb = ClebschCombining(self.clebsch, self.lambda_max, task =
+                                               task_odd_even)
+      
+        
+    def forward(self, first_even : Dict[str, torch.Tensor], first_odd : Dict[str, torch.Tensor],
+                second_even : Dict[str, torch.Tensor], second_odd : Dict[str, torch.Tensor]):
+       
+        even_even = self.even_even_comb(first_even, second_even)
+        odd_odd = self.odd_odd_comb(first_odd, second_odd)
+        even_odd = self.even_odd_comb(first_even, second_odd)
+        odd_even = self.odd_even_comb(first_odd, second_even)
+       
         
         res_even = self.cov_cat([even_even, odd_odd])
         res_odd = self.cov_cat([even_odd, odd_even])

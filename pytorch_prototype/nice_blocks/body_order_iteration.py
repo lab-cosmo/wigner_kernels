@@ -1,5 +1,5 @@
 import torch
-
+from typing import Dict, List, Optional
 
 
 class BodyOrderIteration(torch.nn.Module):
@@ -26,8 +26,10 @@ class BodyOrderIteration(torch.nn.Module):
             self.compressor.fit(res_even, res_odd)
             res_even, res_odd = self.compressor(res_even, res_odd)
             
-    def forward(self, even_now, odd_now, even_initial, odd_initial,
-                      even_old = None, odd_old = None):
+    def forward(self, even_now : Dict[str, torch.Tensor], odd_now : Dict[str, torch.Tensor],
+                  even_initial : Dict[str, torch.Tensor], odd_initial : Dict[str, torch.Tensor],
+                  even_old : Optional[List[Dict[str, torch.Tensor]]] = None, 
+                  odd_old : Optional[List[Dict[str, torch.Tensor]]] = None):
         res_even, res_odd = self.expansioner(even_now, odd_now, even_initial, odd_initial)
         
         if self.purifier is not None:

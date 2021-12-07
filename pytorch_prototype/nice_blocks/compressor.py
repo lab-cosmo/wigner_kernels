@@ -2,6 +2,7 @@ import torch
 from pytorch_prototype.basic_operations import CovLinear
 from sklearn.decomposition import TruncatedSVD
 import numpy as np
+from typing import Dict
 
 class Compressor(torch.nn.Module):
     def __init__(self, n_components = None):
@@ -44,9 +45,10 @@ class Compressor(torch.nn.Module):
         return linear
             
     def fit(self, even, odd):
-        
+        #self.add_module('even_linear', self.get_linear(even))
+        #self.add_module('odd_linear', self.get_linear(odd))
         self.even_linear = self.get_linear(even)
         self.odd_linear = self.get_linear(odd)
         
-    def forward(self, even, odd):
+    def forward(self, even : Dict[str, torch.Tensor], odd : Dict[str, torch.Tensor]):
         return self.even_linear(even), self.odd_linear(odd)
