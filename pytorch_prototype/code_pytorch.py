@@ -2,7 +2,8 @@ import torch
 import torch.nn as nn
 import numpy as np
 from pytorch_prototype.utilities import get_central_species, get_structural_indices
-#from torch import vmap
+from torch import vmap
+import tqdm
 
 def grad_dict(outputs, inputs, **kwargs):
     outputs = list(outputs.items())
@@ -78,8 +79,7 @@ def get_jacobians(output_shape, structural_indices, target_X_der, X_pos_der,
     for key in contributions.keys():
         jacobians.index_add_(0, derivative_indices, contributions[key])       
     return jacobians
-
-def batched_jacobian_single_output(y, x, retain_graph):
+def batched_jacobian_single_output_vmap(y, x, retain_graph):
     
     x = list(x.items())
     x_tensors = [element[1] for element in x]
@@ -93,9 +93,6 @@ def batched_jacobian_single_output(y, x, retain_graph):
         
     def vjp(v):
         grads = torch.autograd.grad(y, x_tensors, v, retain_graph = retain_graph)
-        '''print(len(grads))
-        for el in grads:
-            print(el)'''
         return grads
     
     output_grads = torch.eye(output_size, device = x_tensors[0].device)
@@ -106,7 +103,9 @@ def batched_jacobian_single_output(y, x, retain_graph):
     #print(output_grads.shape)
     output_grads = output_grads.transpose(0, 1)
     #print(output_grads.shape)
-    result = list(vmap(vjp)(output_grads))
+    
+    result = list(vmap(vjp)(output_grads))       
+  
     
     for i in range(len(result)):
         result[i] = result[i].transpose(0, 1)
@@ -116,6 +115,46 @@ def batched_jacobian_single_output(y, x, retain_graph):
     result_dict = {}
     for i in range(len(x_keys)):
         result_dict[x_keys[i]] = result[i]
+    return result_dict
+
+def batched_jacobian_single_output_loops(y, x, retain_graph):   
+
+    x = list(x.items())
+    x_tensors = [element[1] for element in x]
+    x_keys = [element[0] for element in x]
+    y_batch_size = y.shape[0]
+    x_batch_size = x_tensors[0].shape[0]
+    
+    output_size = 1
+    for el in y.shape[1:]:
+        output_size *= el
+
+    result = [[] for _ in range(len(x_tensors))]
+
+    for index in tqdm.tqdm(range(output_size)):
+        output_grads = torch.zeros(output_size, device = x_tensors[0].device)
+        output_grads[index] = 1.0
+        output_grads = output_grads.repeat(y_batch_size)
+        output_grads = output_grads.reshape([y_batch_size] + list(y.shape[1:]))
+        if index + 1 < output_size:
+            retain_now = True
+        else:
+            retain_now = retain_graph
+        grads = torch.autograd.grad(y, x_tensors, output_grads, retain_graph = retain_now)
+       
+        for index, el in enumerate(grads):
+            result[index].append(el[:, None, :])
+
+
+    for index in range(len(result)):
+        result[index] = torch.cat(result[index], dim = 1)
+        q = [x_batch_size] + list(y.shape[1:]) + list(x_tensors[index].shape[1:])
+        result[index] = result[index].reshape(q)
+
+    result_dict = {}
+    for i in range(len(x_keys)):
+        result_dict[x_keys[i]] = result[i]
+    
     return result_dict
 
 class Atomistic(torch.nn.Module):
@@ -158,22 +197,32 @@ class Atomistic(torch.nn.Module):
         return result
     
     def get_jacobians(self, X_der, central_indices, derivative_indices,
-                      X, central_species = None, structural_indices = None):
+                      X, central_species = None, structural_indices = None, n_structures = None,
+                      algorithm = 'vmap'):
+        if (algorithm != 'vmap') and (algorithm != 'loops'):
+            raise ValueError("unknown algorithm")
+            
+        if algorithm == 'vmap':
+            jac_func = batched_jacobian_single_output_vmap
+        if algorithm == 'loops':
+            jac_func = batched_jacobian_single_output_loops
+            
         key = list(X.keys())[0]
         device = X[key].device
         
         for key in X.keys():
             if not X[key].requires_grad:
                 raise ValueError("input should require grad for calculation of jacobians")
-        predictions = self.forward(X, central_species = central_species, structural_indices = structural_indices)
+        predictions = self.forward(X, central_species = central_species, structural_indices = structural_indices,
+                                   n_structures = n_structures)
         result = {}
         total = 0
         for key in predictions.keys():
             total += 1
             if total == len(predictions.keys()):
-                derivatives = batched_jacobian_single_output(predictions[key], X, False)
+                derivatives = jac_func(predictions[key], X, False)
             else:
-                derivatives = batched_jacobian_single_output(predictions[key], X, True)
+                derivatives = jac_func(predictions[key], X, True)
             
             result[key] = get_jacobians(list(predictions[key].shape[1:]), structural_indices, derivatives, X_der, 
                                         central_indices, derivative_indices, device)
