@@ -2,8 +2,92 @@ import torch
 import torch.nn as nn
 import numpy as np
 from pytorch_prototype.utilities import get_central_species, get_structural_indices
-from torch import vmap
+from functorch import vmap
 import tqdm
+
+def multiply(first, second, multiplier):
+    return [first[0], second[0], first[1] * second[1] * multiplier]
+
+def multiply_sequence(sequence, multiplier):
+    result = []
+    
+    for el in sequence:
+        #print(el)
+        #print(len(el))
+        result.append([el[0], el[1], el[2] * multiplier])
+    return result
+
+def get_conversion(l, m):
+    if (m < 0):
+        X_re = [abs(m) + l, 1.0 / np.sqrt(2)]
+        X_im = [m + l, -1.0 / np.sqrt(2)]
+    if m == 0:
+        X_re = [l, 1.0]
+        X_im = [l, 0.0]
+    if m > 0:
+        if m % 2 == 0:
+            X_re = [m + l, 1.0 / np.sqrt(2)]
+            X_im = [-m + l, 1.0 / np.sqrt(2)]
+        else:
+            X_re = [m + l, -1.0 / np.sqrt(2)]
+            X_im = [-m + l, -1.0 / np.sqrt(2)]
+    return X_re, X_im
+
+def compress(sequence, epsilon = 1e-15):
+    result = []
+    for i in range(len(sequence)):
+        m1, m2, multiplier = sequence[i][0], sequence[i][1], sequence[i][2]
+        already = False
+        for j in range(len(result)):
+            if (m1 == result[j][0]) and (m2 == result[j][1]):
+                already = True
+                break
+                
+        if not already:
+            multiplier = 0.0
+            for j in range(i, len(sequence)):
+                if (m1 == sequence[j][0]) and (m2 == sequence[j][1]):
+                    multiplier += sequence[j][2]
+            if (np.abs(multiplier) > epsilon):
+                result.append([m1, m2, multiplier])
+    #print(len(sequence), '->', len(result))
+    return result
+
+def precompute_transformation(clebsch, l1, l2, lambd):
+
+    # DANGER ZONE
+
+    result = [[] for _ in range(2 * lambd + 1)]
+    for mu in range(0, lambd + 1):
+        real_now = []
+        imag_now = []
+        for m2 in range(max(-l2, mu-l1), min(l2,mu+l1)+1):
+            m1 = mu - m2
+            X1_re, X1_im = get_conversion(l1, m1)
+            X2_re, X2_im = get_conversion(l2, m2)
+
+            real_now.append(multiply(X1_re, X2_re, clebsch[m1 + l1, m2 + l2]))
+            real_now.append(multiply(X1_im, X2_im, -clebsch[m1 + l1, m2 + l2]))
+
+
+            imag_now.append(multiply(X1_re, X2_im, clebsch[m1 + l1, m2 + l2]))
+            imag_now.append(multiply(X1_im, X2_re, clebsch[m1 + l1, m2 + l2]))
+        #print(real_now)
+        if (l1 + l2 - lambd) % 2 == 1:
+            imag_now, real_now = real_now, multiply_sequence(imag_now, -1)
+        if mu > 0:
+            if mu % 2 == 0:
+                result[mu + lambd] = multiply_sequence(real_now, np.sqrt(2))
+                result[-mu + lambd] = multiply_sequence(imag_now, np.sqrt(2))
+            else:
+                result[mu + lambd] = multiply_sequence(real_now, -np.sqrt(2))
+                result[-mu + lambd] = multiply_sequence(imag_now, -np.sqrt(2))
+        else:
+            result[lambd] = real_now
+            
+    for i in range(len(result)):
+        result[i] = compress(result[i])
+    return result
 
 def grad_dict(outputs, inputs, **kwargs):
     outputs = list(outputs.items())
