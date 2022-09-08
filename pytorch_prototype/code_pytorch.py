@@ -517,13 +517,16 @@ class WignerCombiningUnrolled(torch.nn.Module):
         result = {}
         for key1 in X1.keys():
             for key2 in X2.keys():
-                l1 = int(key1)
-                l2 = int(key2)
-                for lambd in range(abs(l1 - l2), min(l1 + l2, self.lambd_max) + 1):                   
+                l1 = int(key1.split("_")[0])
+                l2 = int(key2.split("_")[0])
+                sigma1 = int(key1.split("_")[1])
+                sigma2 = int(key2.split("_")[1])
+                for lambd in range(abs(l1 - l2), min(l1 + l2, self.lambd_max) + 1):
+                    sigma = sigma1 * sigma2 * (-1)**(l1+l2+lambd)                   
                     combiner = self.single_combiners['{}_{}_{}'.format(l1, l2, lambd)] 
-                    if str(lambd) not in result.keys():
-                        result[str(lambd)] = combiner(X1[key1], X2[key2])
+                    if str(lambd) + "_" + str(sigma) not in result.keys():
+                        result[str(lambd) + "_" + str(sigma)] = combiner(X1[key1], X2[key2])
                     else:
-                        result[str(lambd)] +=  combiner(X1[key1], X2[key2])
+                        result[str(lambd) + "_" + str(sigma)] +=  combiner(X1[key1], X2[key2])
         return result
         
