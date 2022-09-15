@@ -30,6 +30,6 @@ class ValidationCycle(torch.nn.Module):
         sigma * torch.eye(n_train)  # regularization
         , 
         y_train)
-        y_val_predictions = (self.coefficients(K_val).squeeze(dim = -1)).T @ c
+        y_val_predictions = self.coefficients(K_val).squeeze(dim = -1) @ c
 
         return y_val_predictions
