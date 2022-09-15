@@ -1,6 +1,7 @@
 plots/
 s_gk
 *.out
+datasets/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
