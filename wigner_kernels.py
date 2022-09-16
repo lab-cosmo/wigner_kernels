@@ -79,13 +79,6 @@ def compute_kernel(model, first, second, batch_size = 1000, device = 'cpu'):
         len_first = structures_first.shape[0]
         len_second = structures_second.shape[0]
 
-        '''
-        # nu = 0 kernel contribution
-        for i_1 in tqdm.tqdm(range(len_first)):
-            for i_2 in range(len_second):
-                wigner_invariants[structures_first[i_1], structures_second[i_2], 0] += 1.0
-        '''
-
         # Batched calculation, starting from nu = 1 kernel initialization:
         for idx_1_begin in tqdm.tqdm(range(0, len_first, batch_size_each)):
             idx_1_end = min(idx_1_begin+batch_size_each, len_first)

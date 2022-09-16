@@ -17,7 +17,7 @@ class ValidationCycle(torch.nn.Module):
         # Coefficients for mixing kernels of different body-orders:
         self.coefficients = torch.nn.Linear(nu_max+1, 1, bias = False)
         self.coefficients.weight = torch.nn.Parameter(
-            torch.concat([torch.ones((1,)), torch.zeros((nu_max,))]).reshape(1, -1)
+            torch.concat([torch.zeros((1,)), torch.zeros((nu_max,))]).reshape(1, -1)
         )
         # self.coefficients = torch.nn.utils.parametrizations.orthogonal(self.coefficients, use_trivialization=False)
         # print(self.coefficients.parametrizations.weight.original)
