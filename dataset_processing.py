@@ -9,6 +9,7 @@ def get_dataset_slice(dataset_path, slice):
     else:  # QM7 and QM9 don't seem to be shuffled randomly 
         print("Shuffling and extracting from dataset")
         all_structures = ase.io.read(dataset_path, index = ":")
+        print("Total length:", len(all_structures))
         np.random.shuffle(all_structures)
         index_begin = int(slice.split(":")[0])
         index_end = int(slice.split(":")[1])

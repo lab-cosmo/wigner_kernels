@@ -2,6 +2,10 @@ plots/
 s_gk
 *.out
 datasets/
+inputs/
+outputs/
+scripts/
+splines/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

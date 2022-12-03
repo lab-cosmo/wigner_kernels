@@ -67,12 +67,12 @@ def compute_kernel(model, first, second, batch_size = 1000, device = 'cpu'):
         # if center_species == 1: continue  # UNCOMMENT FOR METHANE DATASET C-ONLY VERSION
         print(f"     Calculating kernels for center species {center_species}", flush = True)
         try:
-            structures_first = first.block(spherical_harmonics_l=0, species_center=center_species).samples["structure"]
+            structures_first = torch.tensor(first.block(spherical_harmonics_l=0, species_center=center_species).samples["structure"], dtype=torch.long)
         except ValueError:
             print("First does not contain the above center species")
             continue
         try:
-            structures_second = second.block(spherical_harmonics_l=0, species_center=center_species).samples["structure"]
+            structures_second = torch.tensor(second.block(spherical_harmonics_l=0, species_center=center_species).samples["structure"], dtype=torch.long)
         except ValueError:
             print("Second does not contain the above center species")
             continue
@@ -104,8 +104,14 @@ def compute_kernel(model, first, second, batch_size = 1000, device = 'cpu'):
                 result_now = model(now).to('cpu')
                 result_now = result_now.reshape([dimension_1, dimension_2, nu_max])
 
+                temp = torch.zeros((wigner_invariants.shape[0], result_now.shape[1], nu_max))
+                temp.index_add_(dim=0, index=structures_first[idx_1_begin:idx_1_end], source=result_now)
+                wigner_invariants.index_add_(dim=1, index=structures_second[idx_2_begin:idx_2_end], source=temp)
+
+                """
+                # Old (and slow) version
                 for i_1 in range(idx_1_begin, idx_1_end):
                     for i_2 in range(idx_2_begin, idx_2_end):
                         wigner_invariants[structures_first[i_1], structures_second[i_2]] += result_now[i_1-idx_1_begin, i_2-idx_2_begin]
-
+                """
     return wigner_invariants

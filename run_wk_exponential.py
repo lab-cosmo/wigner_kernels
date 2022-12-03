@@ -2,6 +2,7 @@ import torch
 import copy
 import numpy as np
 import scipy as sp
+from scipy import optimize
 
 from pytorch_prototype.clebsch_gordan import ClebschGordan
 
@@ -10,27 +11,69 @@ from rascaline import SphericalExpansion
 
 from wigner_kernels import WignerKernel, compute_kernel
 from dataset_processing import get_dataset_slice
-from error_measures import get_sse, get_rmse, get_mae
+from error_measures import get_sse, get_rmse, get_mae, get_sae
 from validation import ValidationCycle
 
-# torch.set_default_dtype(torch.float64)
-# torch.manual_seed(1234)
-RANDOM_SEED = 2
+from LE_maths import get_LE_calculator
+
+import argparse
+import json
+
+parser = argparse.ArgumentParser(description="?")
+
+parser.add_argument(
+    "parameters",
+    type=str,
+    help="The file containing the parameters. JSON formatted dictionary.",
+)
+
+args = parser.parse_args()
+parameters = args.parameters
+
+param_dict = json.load(open(parameters, "r"))
+DTYPE = param_dict["data type"]
+print(f"data type: {DTYPE}")
+RANDOM_SEED = param_dict["random seed"]
+print(f"random seed: {RANDOM_SEED}")
+BATCH_SIZE = param_dict["batch size"]
+print(f"batch size: {BATCH_SIZE}")
+CONVERSION_FACTOR = param_dict["conversion factor"]
+print(f"conversion factor: {CONVERSION_FACTOR}")
+TARGET_KEY = param_dict["target key"]
+print(f"target key: {TARGET_KEY}")
+DATASET_PATH = param_dict["dataset path"]
+print(f"dataset path: {DATASET_PATH}")
+n_test = param_dict["n_test"]
+print(f"n_test: {n_test}")
+n_train = param_dict["n_train"]
+print(f"n_train: {n_train}")
+r_cut = param_dict["r_cut"]
+print(f"r_cut: {r_cut}")
+NU_MAX = param_dict["nu_max"]
+print(f"nu_max: {NU_MAX}")
+L_MAX = param_dict["L_max"]
+print(f"l_max: {L_MAX}")
+opt_target_name = param_dict["optimization target"] 
+print(f"optimization target: {opt_target_name}")
+if opt_target_name != "mae" and opt_target_name != "rmse": raise NotImplementedError
+C = param_dict["C"]
+L_NU = param_dict["L_NU"]
+L_R = param_dict["L_R"]
+print(f"Density parameters: C={C}, L_NU={L_NU}, L_R={L_R}")
+
+if DTYPE == "double": torch.set_default_dtype(torch.float64)
 np.random.seed(RANDOM_SEED)
-print(f"Random seed: {RANDOM_SEED}", flush = True)
 
 HARTREE_TO_EV = 27.211386245988
 HARTREE_TO_KCALMOL = 627.5
 EV_TO_KCALMOL = HARTREE_TO_KCALMOL/HARTREE_TO_EV
 
-DATASET_PATH = 'datasets/qm9.xyz'
-TARGET_KEY = "U0" # "elec. Free Energy [eV]" # "U0"
-CONVERSION_FACTOR = HARTREE_TO_KCALMOL
-
-print("SOTA")
-
-n_test = 500
-n_train = 100
+#TARGET_KEY = "U0" # "elec. Free Energy [eV]" # "U0"
+if CONVERSION_FACTOR == "hartree to kcal/mol": 
+    CONVERSION_FACTOR = HARTREE_TO_KCALMOL
+else:
+    print("conversion factor ???")
+    exit()
 
 n_validation_splits = 10
 assert n_train % n_validation_splits == 0
@@ -40,13 +83,11 @@ n_train_sub = n_train - n_validation
 test_slice = str(0) + ":" + str(n_test)
 train_slice = str(n_test) + ":" + str(n_test+n_train)
 
-BATCH_SIZE = 10000
-DEVICE = 'cuda'
-NU_MAX = 4 # 4!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-L_MAX = 3
+# BATCH_SIZE = 10000
+DEVICE = ('cuda' if torch.cuda.is_available() else "cpu")
 clebsch = ClebschGordan(L_MAX)
 
-# Spherical expansion and composition
+# Composition
 
 def get_composition_features(frames, all_species):
     species_dict = {s: i for i, s in enumerate(all_species)}
@@ -70,34 +111,44 @@ def get_composition_features(frames, all_species):
     composition = TensorMap(Labels.single(), blocks=[block])
     return composition.block().values
 
-if "methane" in DATASET_PATH:
+print("Gaussian smoothing map for r = 1, 2, 3, 4 A:")
+for nu in range(1, NU_MAX+1):
+    print(f"nu = {nu}: {C*np.exp(L_R*1)} {C*np.exp(L_R*2)} {C*np.exp(L_R*3)} {C*np.exp(L_R*4)}")
+    # print(f"nu = {nu}: {C*np.exp(L_R*nu*1)} {C*np.exp(L_R*nu*2)} {C*np.exp(L_R*nu*3)} {C*np.exp(L_R*nu*4)}")
+
+train_structures = get_dataset_slice(DATASET_PATH, train_slice)
+test_structures = get_dataset_slice(DATASET_PATH, test_slice)
+
+train_train_kernel = torch.zeros((n_train, n_train, NU_MAX))
+train_test_kernel = torch.zeros((n_train, n_test, NU_MAX))
+
+'''
+if "methane" in DATASET_PATH or "ch4" in DATASET_PATH:
     hypers_spherical_expansion = {
-        "cutoff": 6.5,
+        "cutoff": r_cut,
         "max_radial": 22,
         "max_angular": L_MAX,
-        "atomic_gaussian_width": 0.4,
+        "atomic_gaussian_width": C*np.exp(LS*nu), 
         "center_atom_weight": 0.0,
         "radial_basis": {"Gto": {"spline_accuracy": 1e-8}},
         "cutoff_function": {"ShiftedCosine": {"width": 0.5}},
         "radial_scaling":  {"Willatt2018": { "scale": 2.0, "rate": 2.0, "exponent": 6}}, 
-        # A radial scaling (but much smoother) could also help for methane
     }
 else:
     hypers_spherical_expansion = {
-        "cutoff": 4.5,
+        "cutoff": r_cut,
         "max_radial": 22,
         "max_angular": L_MAX,
-        "atomic_gaussian_width": 0.15,
+        "atomic_gaussian_width": C*np.exp(LS*nu),
         "center_atom_weight": 0.0,
         "radial_basis": {"Gto": {"spline_accuracy": 1e-8}},
-        "cutoff_function": {"ShiftedCosine": {"width": 0.5}},
-        "radial_scaling":  {"Willatt2018": { "scale": 1.5, "rate": 2.0, "exponent": 6}},
+        "cutoff_function": {"Step": {}}
+        # "cutoff_function": {"ShiftedCosine": {"width": 0.5}},
+        # "radial_scaling":  {"Willatt2018": {"scale": 1.5, "rate": 2.0, "exponent": 6}},
     }
-
 calculator = SphericalExpansion(**hypers_spherical_expansion)
-
-train_structures = get_dataset_slice(DATASET_PATH, train_slice)
-test_structures = get_dataset_slice(DATASET_PATH, test_slice)
+'''
+calculator = get_LE_calculator(l_max=L_MAX, n_max=25, a=r_cut, nu=NU_MAX, CS=C, l_nu=L_NU, l_r=L_R)
 
 def move_to_torch(rust_map: TensorMap) -> TensorMap:
     torch_blocks = []
@@ -152,8 +203,9 @@ train_train_kernel = compute_kernel(model, train_coefs, train_coefs, batch_size 
 print("Computing train-test-kernels", flush = True)
 train_test_kernel = compute_kernel(model, train_coefs, test_coefs, batch_size = BATCH_SIZE, device = DEVICE)
 
-train_train_kernel = train_train_kernel.data.cpu()
-train_test_kernel = train_test_kernel.data.cpu()
+
+
+
 
 print("Calculating composition features", flush = True)
 X_train = get_composition_features(train_structures, all_species)
@@ -169,21 +221,17 @@ test_energies = torch.tensor(test_energies, dtype = torch.get_default_dtype()) *
 
 # nu = 0 contribution
 
-if "methane" in DATASET_PATH:
+"""
+if "methane" in DATASET_PATH or "ch4" in DATASET_PATH:
     mean_train_energy = torch.mean(train_energies)
     train_energies -= mean_train_energy
     test_energies -= mean_train_energy
 else:
     c_comp = torch.linalg.solve(X_train.T @ X_train, X_train.T @ train_energies)
+    print(f"Test set RMSE: {get_rmse(X_test @ c_comp, test_energies).item()} [MAE: {get_mae(X_test @ c_comp, test_energies).item()}]")
     train_energies -= X_train @ c_comp
     test_energies -= X_test @ c_comp
-
-train_train_nu0_kernel = X_train @ X_train.T
-train_test_nu0_kernel = X_train @ X_test.T
-
-train_train_kernel = torch.concat([train_train_nu0_kernel.unsqueeze(dim = 2), train_train_kernel], dim = 2) 
-train_test_kernel = torch.concat([train_test_nu0_kernel.unsqueeze(dim = 2), train_test_kernel], dim = 2)
-
+"""
 
 '''
     # Kernel regularization estimation (useful if gradient descent used):
@@ -227,7 +275,7 @@ train_test_kernel = torch.concat([train_test_nu0_kernel.unsqueeze(dim = 2), trai
 # Validation cycles to optimize kernel regularization and kernel mixing
 
 validation_cycle = ValidationCycle(nu_max = NU_MAX, alpha_exp_initial_guess = -5) # alpha_exp_initial_guess)
-optimizer = torch.optim.Adam(validation_cycle.parameters(), lr = 1e-3)
+# optimizer = torch.optim.Adam(validation_cycle.parameters(), lr = 1e-3)
 
 print("Beginning hyperparameter optimization")
 
@@ -275,13 +323,42 @@ for i in range(1000):
     if i % 100 == 0:
         print(best_rmse, best_coefficients, best_sigma, flush = True)
 
-'''
+    c = torch.linalg.solve(
+        train_train_kernel @ best_coefficients.squeeze(dim = 0) +  # nu = 1, ..., 4 kernels
+        best_sigma * torch.eye(n_train)  # regularization
+        , 
+        train_energies)
+
+    test_predictions = (train_test_kernel @ best_coefficients.squeeze(dim = 0)).T @ c
+    print(f"Test set RMSE (after kernel mixing): {get_rmse(test_predictions, test_energies).item()}")
+
+    print()
+    print("Final result (test MAE):")
+    print(n_train, get_mae(test_predictions, test_energies).item())
+    '''
+
+train_train_nu0_kernel = X_train @ X_train.T
+train_test_nu0_kernel = X_train @ X_test.T
+
+train_train_kernel = torch.concat([train_train_nu0_kernel.unsqueeze(dim = 2), train_train_kernel], dim = 2) 
+train_test_kernel = torch.concat([train_test_nu0_kernel.unsqueeze(dim = 2), train_test_kernel], dim = 2)
+
+for iota in range(NU_MAX+1):
+    print(f"nu = {iota}:")
+    print(train_train_kernel[:6, :6, iota])
+
+from math import factorial
 def validation_loss_for_global_optimization(x):
 
     validation_cycle.sigma_exponent = torch.nn.Parameter(
-            torch.tensor(x[-1], dtype = torch.get_default_dtype())
-            )
-    validation_cycle.coefficients.weight = torch.nn.Parameter(torch.tensor(x[0:NU_MAX+1], dtype = torch.get_default_dtype()).reshape(1, -1))
+        torch.tensor(0.0, dtype = torch.get_default_dtype())
+    )
+    C = np.exp(np.log(10.0)*x[0])
+    alpha = x[1]
+    C0 = np.exp(np.log(10.0)*x[2])
+    validation_cycle.coefficients.weight = torch.nn.Parameter(torch.tensor([C0] + [
+        C*alpha**nu/factorial(nu) for nu in range(1, NU_MAX+1)
+    ]).reshape(1, -1))
 
     validation_loss = 0.0
     for i_validation_split in range(n_validation_splits):
@@ -305,53 +382,106 @@ def validation_loss_for_global_optimization(x):
 
         with torch.no_grad():
             validation_predictions = validation_cycle(K_train_sub, y_train_sub, K_validation)
-            validation_loss += get_sse(validation_predictions, y_validation).item()
-    '''
-    with open("log.txt", "a") as out:
-        out.write(str(np.sqrt(validation_loss/n_train)) + "\n")
-        out.flush()
-    '''
-    print(validation_loss)
+            if opt_target_name == "mae":
+                validation_loss += get_sae(validation_predictions, y_validation).item()
+            else:
+                validation_loss += get_sse(validation_predictions, y_validation).item()
+
+    with torch.no_grad():
+        if opt_target_name == "mae":
+            validation_loss = validation_loss/n_train
+        else:
+            validation_loss = np.sqrt(validation_loss/n_train)    
+
+    print(x, validation_loss)
     return validation_loss
 
-bounds = [(-1.0, 1.0) for i in range(NU_MAX+1)]
-bounds.append((-6.0, 2.0))  # -8 2
-x0 = [0.0] * (NU_MAX+1)
-x0.append(-5.0)  # -5
-x0 = np.array(x0)
+bounds = [(0.0, 10.0), (0.0, 5.0), (0.0, 10.0)]
+x0 = np.array([1.0, 0.5, 5])
 solution = sp.optimize.dual_annealing(validation_loss_for_global_optimization, bounds = bounds, x0 = x0, no_local_search = True)
 print(solution.x)
-print(np.sqrt(solution.fun/n_train)) # n_train
+print(solution.fun) # n_train
 
-best_coefficients = torch.tensor(solution.x[0:NU_MAX+1], dtype = torch.get_default_dtype())
-best_sigma = np.exp(solution.x[-1]*np.log(10.0))
-
+best_coefficients = torch.tensor([np.exp(np.log(10.0)*solution.x[2])] + [
+        np.exp(np.log(10.0)*solution.x[0])*solution.x[1]**nu/factorial(nu) for nu in range(1, NU_MAX+1)
+    ])
+print("Adaptive equivalent:", best_coefficients)
 
 c = torch.linalg.solve(
     train_train_kernel @ best_coefficients +  # nu = 1, ..., 4 kernels
-    best_sigma * torch.eye(n_train)  # regularization
+    torch.eye(n_train)  # regularization
     , 
     train_energies)
 
 test_predictions = (train_test_kernel @ best_coefficients).T @ c
-print(f"Test set RMSE (after kernel mixing): {get_rmse(test_predictions, test_energies).item()}")
+print(f"Test set MAE (after kernel mixing): {get_mae(test_predictions, test_energies).item()}")
 
 print()
 print("Final result (test MAE):")
 print(n_train, get_mae(test_predictions, test_energies).item())
 
 '''
-# Version for gradient-based local optimization
+# Simple sum of kernels version
+
+train_train_kernel = train_train_kernel @ torch.tensor([1e8] + [1]*NU_MAX, dtype = torch.get_default_dtype())
+train_test_kernel = train_test_kernel @ torch.tensor([1e8] + [1]*NU_MAX, dtype = torch.get_default_dtype())
+
+target_list = []
+alpha_exp_list = np.linspace(-15, 5, 81)
+for alpha_exp in alpha_exp_list:    
+
+    validation_loss = 0.0
+    for i_validation_split in range(n_validation_splits):
+        index_validation_start = i_validation_split*n_validation
+        index_validation_stop = index_validation_start + n_validation
+
+        K_train_sub = torch.empty((n_train_sub, n_train_sub))
+        K_train_sub[:index_validation_start, :index_validation_start] = train_train_kernel[:index_validation_start, :index_validation_start]
+        if i_validation_split != n_validation_splits - 1:
+            K_train_sub[:index_validation_start, index_validation_start:] = train_train_kernel[:index_validation_start, index_validation_stop:]
+            K_train_sub[index_validation_start:, :index_validation_start] = train_train_kernel[index_validation_stop:, :index_validation_start]
+            K_train_sub[index_validation_start:, index_validation_start:] = train_train_kernel[index_validation_stop:, index_validation_stop:]
+        y_train_sub = train_energies[:index_validation_start]
+        if i_validation_split != n_validation_splits - 1:
+            y_train_sub = torch.concat([y_train_sub, train_energies[index_validation_stop:]])
+
+        K_validation = train_train_kernel[index_validation_start:index_validation_stop, :index_validation_start]
+        if i_validation_split != n_validation_splits - 1:
+            K_validation = torch.concat([K_validation, train_train_kernel[index_validation_start:index_validation_stop, index_validation_stop:]], dim = 1)
+        y_validation = train_energies[index_validation_start:index_validation_stop] 
+
+        c_comp = torch.linalg.solve(
+            K_train_sub +
+            10.0**alpha_exp * torch.eye(n_train_sub), 
+            y_train_sub
+        )
+
+        validation_predictions = K_validation @ c_comp
+
+        if opt_target_name == "mae":
+            validation_loss += get_sae(validation_predictions, y_validation).item()
+        else:
+            validation_loss += get_sse(validation_predictions, y_validation).item()
+
+    if opt_target_name == "mae":
+        validation_loss = validation_loss/n_train
+    else:
+        validation_loss = np.sqrt(validation_loss/n_train)
+
+    print(alpha_exp, validation_loss)
+    target_list.append(validation_loss)
+
+
+best_alpha = alpha_exp_list[np.argmin(target_list)]
+print("Result of sigma optimization: ", best_alpha, min(target_list))
+
 c = torch.linalg.solve(
-    train_train_kernel @ best_coefficients.squeeze(dim = 0) +  # nu = 1, ..., 4 kernels
-    best_sigma * torch.eye(n_train)  # regularization
+    train_train_kernel +  # nu = 1, ..., 4 kernels
+    10.0**best_alpha * torch.eye(n_train)  # regularization
     , 
     train_energies)
 
-test_predictions = (train_test_kernel @ best_coefficients.squeeze(dim = 0)).T @ c
-print(f"Test set RMSE (after kernel mixing): {get_rmse(test_predictions, test_energies).item()}")
-
-print()
-print("Final result (test MAE):")
-print(n_train, get_mae(test_predictions, test_energies).item())
+test_predictions = train_test_kernel.T @ c
+print(n_train)
+print(f"Test set RMSE: {get_rmse(test_predictions, test_energies).item()} [MAE: {get_mae(test_predictions, test_energies).item()}]")
 '''

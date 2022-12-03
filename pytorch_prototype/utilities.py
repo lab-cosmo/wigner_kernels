@@ -1,8 +1,8 @@
 import numpy as np
 import torch
 import copy
-from rascal.representations import SphericalExpansion as SPH
-from nice.rascal_coefficients import process_structures
+# from rascal.representations import SphericalExpansion as SPH
+# from nice.rascal_coefficients import process_structures
 
 def get_L2_mean(covariants):
     L2 = 0.0
