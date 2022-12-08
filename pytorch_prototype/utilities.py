@@ -1,8 +1,7 @@
 import numpy as np
 import torch
 import copy
-# from rascal.representations import SphericalExpansion as SPH
-# from nice.rascal_coefficients import process_structures
+from equistore import TensorBlock, TensorMap
 
 def get_L2_mean(covariants):
     L2 = 0.0
@@ -160,51 +159,18 @@ def convert_rascal_coefficients(features, n_max, n_types, l_max):
     
     return result
 
-def get_coefs(structures, hypers, all_species):
-    structures = process_structures(structures)
-    hypers = copy.deepcopy(hypers)
-    hypers['global_species'] = [int(specie) for specie in all_species]
-    hypers['expansion_by_species_method'] = 'user defined'
-    
-    n_max = hypers['max_radial']
-    l_max = hypers['max_angular']
-    n_types = len(all_species)
-    soap = SPH(**hypers)
-    features = soap.transform(structures)
-    coefficients = features.get_features(soap)
-    coefficients = convert_rascal_coefficients(coefficients, n_max, n_types, l_max)
-    for key in coefficients.keys():
-        coefficients[key] = torch.from_numpy(coefficients[key]).type(torch.get_default_dtype())
-    return coefficients
-
-def get_coef_ders(structures, hypers, all_species):
-    structures = process_structures(structures)
-    hypers = copy.deepcopy(hypers)
-    hypers['global_species'] = [int(specie) for specie in all_species]
-    hypers['expansion_by_species_method'] = 'user defined'
-    hypers['compute_gradients'] = True
-    
-    n_max = hypers['max_radial']
-    l_max = hypers['max_angular']
-    n_types = len(all_species)
-    soap = SPH(**hypers)
-    features = soap.transform(structures)
-    gradients = features.get_features_gradient(soap)    
-    grad_info = features.get_gradients_info()
-    
-    gradients = convert_rascal_coefficients(gradients, n_max, n_types, l_max)
-    
-    for key in gradients.keys():
-        gradients[key] = np.reshape(gradients[key], [-1, 3, gradients[key].shape[1], gradients[key].shape[2]])
-        
-    hashes = np.array(grad_info[:, 2], dtype = np.int64) * (np.int64(np.max(grad_info[:, 1])) + 1) + np.array(grad_info[:, 1], dtype = np.int64)
-    indices = np.argsort(hashes)
-    grad_info[:, 1] = grad_info[indices, 1]
-    grad_info[:, 2] = grad_info[indices, 2]
-    for key in gradients.keys():
-        gradients[key] = gradients[key][indices]
-   
-    for key in gradients.keys():
-        gradients[key] = torch.from_numpy(gradients[key]).type(torch.get_default_dtype())
-    return gradients, grad_info[:, 1], grad_info[:, 2]
+def move_to_torch(rust_map: TensorMap) -> TensorMap:
+    torch_blocks = []
+    for _, block in rust_map:
+        torch_block = TensorBlock(
+            values=torch.tensor(block.values).to(dtype=torch.get_default_dtype()),
+            samples=block.samples,
+            components=block.components,
+            properties=block.properties,
+        )
+        torch_blocks.append(torch_block)
+    return TensorMap(
+            keys = rust_map.keys,
+            blocks = torch_blocks
+            )
     

@@ -198,7 +198,7 @@ for nu in range(1, NU_MAX+1):
 
     # Kernel computation
 
-    model = WignerKernel(clebsch, L_MAX, nu-2)
+    model = WignerKernel(clebsch, L_MAX, nu)
     model = model.to(DEVICE)
 
     print("Computing train-train-kernels", flush = True)
@@ -429,69 +429,3 @@ print(f"Test set MAE (after kernel mixing): {get_mae(test_predictions, test_ener
 print()
 print("Final result (test MAE):")
 print(n_train, get_mae(test_predictions, test_energies).item())
-
-'''
-# Simple sum of kernels version
-
-train_train_kernel = train_train_kernel @ torch.tensor([1e8] + [1]*NU_MAX, dtype = torch.get_default_dtype())
-train_test_kernel = train_test_kernel @ torch.tensor([1e8] + [1]*NU_MAX, dtype = torch.get_default_dtype())
-
-target_list = []
-alpha_exp_list = np.linspace(-15, 5, 81)
-for alpha_exp in alpha_exp_list:    
-
-    validation_loss = 0.0
-    for i_validation_split in range(n_validation_splits):
-        index_validation_start = i_validation_split*n_validation
-        index_validation_stop = index_validation_start + n_validation
-
-        K_train_sub = torch.empty((n_train_sub, n_train_sub))
-        K_train_sub[:index_validation_start, :index_validation_start] = train_train_kernel[:index_validation_start, :index_validation_start]
-        if i_validation_split != n_validation_splits - 1:
-            K_train_sub[:index_validation_start, index_validation_start:] = train_train_kernel[:index_validation_start, index_validation_stop:]
-            K_train_sub[index_validation_start:, :index_validation_start] = train_train_kernel[index_validation_stop:, :index_validation_start]
-            K_train_sub[index_validation_start:, index_validation_start:] = train_train_kernel[index_validation_stop:, index_validation_stop:]
-        y_train_sub = train_energies[:index_validation_start]
-        if i_validation_split != n_validation_splits - 1:
-            y_train_sub = torch.concat([y_train_sub, train_energies[index_validation_stop:]])
-
-        K_validation = train_train_kernel[index_validation_start:index_validation_stop, :index_validation_start]
-        if i_validation_split != n_validation_splits - 1:
-            K_validation = torch.concat([K_validation, train_train_kernel[index_validation_start:index_validation_stop, index_validation_stop:]], dim = 1)
-        y_validation = train_energies[index_validation_start:index_validation_stop] 
-
-        c_comp = torch.linalg.solve(
-            K_train_sub +
-            10.0**alpha_exp * torch.eye(n_train_sub), 
-            y_train_sub
-        )
-
-        validation_predictions = K_validation @ c_comp
-
-        if opt_target_name == "mae":
-            validation_loss += get_sae(validation_predictions, y_validation).item()
-        else:
-            validation_loss += get_sse(validation_predictions, y_validation).item()
-
-    if opt_target_name == "mae":
-        validation_loss = validation_loss/n_train
-    else:
-        validation_loss = np.sqrt(validation_loss/n_train)
-
-    print(alpha_exp, validation_loss)
-    target_list.append(validation_loss)
-
-
-best_alpha = alpha_exp_list[np.argmin(target_list)]
-print("Result of sigma optimization: ", best_alpha, min(target_list))
-
-c = torch.linalg.solve(
-    train_train_kernel +  # nu = 1, ..., 4 kernels
-    10.0**best_alpha * torch.eye(n_train)  # regularization
-    , 
-    train_energies)
-
-test_predictions = train_test_kernel.T @ c
-print(n_train)
-print(f"Test set RMSE: {get_rmse(test_predictions, test_energies).item()} [MAE: {get_mae(test_predictions, test_energies).item()}]")
-'''

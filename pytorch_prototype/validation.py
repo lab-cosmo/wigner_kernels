@@ -6,12 +6,12 @@ class ValidationCycle(torch.nn.Module):
     # of an arbitrary loss with respect to the continuous
     # hyperparameters can be used to minimize the validation loss.
 
-    def __init__(self, nu_max, alpha_exp_initial_guess):
+    def __init__(self, nu_max, alpha_exp):
         super().__init__()
 
         # Kernel regularization:
         self.sigma_exponent = torch.nn.Parameter(
-            torch.tensor([alpha_exp_initial_guess], dtype = torch.get_default_dtype())
+            torch.tensor([alpha_exp], dtype = torch.get_default_dtype())
             )
 
         # Coefficients for mixing kernels of different body-orders:
