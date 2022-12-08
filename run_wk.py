@@ -11,7 +11,7 @@ from equistore import Labels
 from rascaline import SphericalExpansion
 
 from pytorch_prototype.clebsch_gordan import ClebschGordan
-from pytorch_prototype.wigner_kernels import WignerKernel, compute_kernel
+from pytorch_prototype.wigner_kernels import WignerKernelFullIterative, WignerKernelReducedCost, compute_kernel
 from pytorch_prototype.dataset_processing import get_dataset_slice, get_composition_features
 from pytorch_prototype.error_measures import get_sse, get_rmse, get_mae, get_sae
 from pytorch_prototype.validation import ValidationCycle
@@ -64,8 +64,8 @@ L_R = param_dict["L_R"]
 print(f"Density parameters: C={C}, L_NU={L_NU}, L_R={L_R}")
 optimization_mode = param_dict["optimization mode"]
 if optimization_mode != "full" and optimization_mode != "kernel_exp": raise NotImplementedError
-
 if optimization_mode == "kernel_exp" and L_NU != 0: print("WARNING: Cannot interpret final kernel as a kernel exponential")
+cg_mode = param_dict["cg mode"]
 
 
 if DTYPE == "double": torch.set_default_dtype(torch.float64)
@@ -165,7 +165,10 @@ if L_NU == 0.0:
 
     print("Expansion coefficients done", flush = True)
 
-    model = WignerKernel(clebsch, L_MAX, NU_MAX-2)
+    if cg_mode == "full":
+        model = WignerKernelFullIterative(clebsch, L_MAX, NU_MAX)
+    else:
+        model = WignerKernelReducedCost(clebsch, L_MAX, NU_MAX)
     model = model.to(DEVICE)
 
     print("Computing train-train-kernels", flush = True)
@@ -224,7 +227,10 @@ else:
 
         # Kernel computation
 
-        model = WignerKernel(clebsch, L_MAX, nu-2)
+        if cg_mode == "full":
+            model = WignerKernelFullIterative(clebsch, L_MAX, nu)
+        else:
+            model = WignerKernelReducedCost(clebsch, L_MAX, nu)
         model = model.to(DEVICE)
 
         print("Computing train-train-kernels", flush = True)
@@ -290,7 +296,7 @@ def validation_loss_for_global_optimization(x):
         else:
             validation_loss = np.sqrt(validation_loss/n_train)    
 
-    print(x, validation_loss)
+    # print(x, validation_loss)
     return validation_loss
 
 if optimization_mode == "kernel_exp":

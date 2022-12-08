@@ -27,22 +27,26 @@ class WignerKernel(torch.nn.Module):
     def __init__(self, clebsch, lambda_max, nu_max):
         super(WignerKernel, self).__init__()
         self.nu_max = nu_max
-        equivariant_iterators = [WignerCombiningUnrolled(clebsch.precomputed_, lambda_max, algorithm = 'fast_cg') 
-            for _ in range(2, nu_max-nu_max//2+1)]
-        self.equivariant_iterators = nn.ModuleList(equivariant_iterators)
-        invariant_iterators = [WignerCombiningUnrolled(clebsch.precomputed_, 0, algorithm = 'fast_cg')
-            for _ in range(nu_max//2)]
-        self.invariant_iterators = nn.ModuleList(invariant_iterators)
+        equivariant_iterators = {
+            str(nu): WignerCombiningUnrolled(clebsch.precomputed_, lambda_max, algorithm = 'fast_cg') 
+            for nu in range(2, nu_max-nu_max//2+1)
+            }
+        self.equivariant_iterators = nn.ModuleDict(equivariant_iterators)
+        invariant_iterators = {
+            str(nu): WignerCombiningUnrolled(clebsch.precomputed_, 0, algorithm = 'fast_cg')
+            for nu in range(nu_max-nu_max//2+1, nu_max+1)
+            }
+        self.invariant_iterators = nn.ModuleDict(invariant_iterators)
 
     def forward(self, X):
         equivariant_kernels = [X]
         result = [equivariant_kernels[1-1]['0_1'][:, 0, 0, None]]
-        for iota in range(2, self.nu_max+1):
-            if (iota <= self.nu_max-self.nu_max//2): 
-                equivariant_kernels.append(self.equivariant_iterators[iota-2](equivariant_kernels[-1], equivariant_kernels[0]))
+        for nu in range(2, self.nu_max+1):
+            if (nu <= self.nu_max-self.nu_max//2): 
+                equivariant_kernels.append(self.equivariant_iterators[str(nu)](equivariant_kernels[-1], equivariant_kernels[0]))
                 result.append(equivariant_kernels[-1]['0_1'][:, 0, 0, None])
             else:
-                result.append(self.invariant_iterators[iota-self.nu_max+self.nu_max//2-1](equivariant_kernels[iota-iota//2-1], equivariant_kernels[iota//2-1])['0_1'][:, 0, 0, None])
+                result.append(self.invariant_iterators[str(nu)](equivariant_kernels[self.nu_max-self.nu_max//2-1], equivariant_kernels[nu-self.nu_max+self.nu_max//2-1])['0_1'][:, 0, 0, None])
         result = torch.cat(result, dim = -1)
         return result
 

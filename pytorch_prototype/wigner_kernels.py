@@ -23,33 +23,59 @@ def initialize_wigner_single_species_batched(first, second, center_species, idx_
                 )
     return result
 
-class WignerKernel(torch.nn.Module):
-    def __init__(self, clebsch, lambda_max, num_iterations):
-        super(WignerKernel, self).__init__()
-        main = [WignerCombiningUnrolled(clebsch.precomputed_, lambda_max, algorithm = 'fast_cg')  
-                for _ in range(num_iterations)]
-        self.main = nn.ModuleList(main)
-        self.last = WignerCombiningUnrolled(clebsch.precomputed_, 0, algorithm = 'fast_cg')
-    
-    #############################
-    # Need to try what happens when combining e.g. nu = 2 and nu = 2 kernels
-    #############################
+class WignerKernelFullIterative(torch.nn.Module):
+    def __init__(self, clebsch, lambda_max, nu_max):
+        super(WignerKernelFullIterative, self).__init__()
+        self.nu_max = nu_max
+        equivariant_iterators = {
+            str(nu) : WignerCombiningUnrolled(clebsch.precomputed_, lambda_max, algorithm = 'fast_cg')  
+            for nu in range(2, nu_max)
+        }
+        self.equivariant_iterators = nn.ModuleDict(equivariant_iterators)
+        self.invariant_iterator = WignerCombiningUnrolled(clebsch.precomputed_, 0, algorithm = 'fast_cg')
             
     def forward(self, X):
         result = []
-        wig_now = X
-        result.append(wig_now['0_1'][:, 0, 0, None])
-        for block in self.main:
-            wig_now = block(wig_now, X)
-            result.append(wig_now['0_1'][:, 0, 0, None])
-        wig_now = self.last(wig_now, X)
-        result.append(wig_now['0_1'][:, 0, 0, None])
+        wig_nu = X
+        result.append(wig_nu['0_1'][:, 0, 0, None])  # nu = 1 kernel
+        for nu in range(2, self.nu_max):  # nu = 2 to nu = nu_max-1
+            wig_nu = self.equivariant_iterators[str(nu)](wig_nu, X)
+            result.append(wig_nu['0_1'][:, 0, 0, None])
+        wig_nu = self.invariant_iterator(wig_nu, X)  # only calculate invariants for nu = nu_max
+        result.append(wig_nu['0_1'][:, 0, 0, None])   
+        result = torch.cat(result, dim = -1)
+        return result
+
+class WignerKernelReducedCost(torch.nn.Module):
+    def __init__(self, clebsch, lambda_max, nu_max):
+        super(WignerKernelReducedCost, self).__init__()
+        self.nu_max = nu_max
+        equivariant_iterators = {
+            str(nu): WignerCombiningUnrolled(clebsch.precomputed_, lambda_max, algorithm = 'fast_cg') 
+            for nu in range(2, nu_max-nu_max//2+1)
+            }
+        self.equivariant_iterators = nn.ModuleDict(equivariant_iterators)
+        invariant_iterators = {
+            str(nu): WignerCombiningUnrolled(clebsch.precomputed_, 0, algorithm = 'fast_cg')
+            for nu in range(nu_max-nu_max//2+1, nu_max+1)
+            }
+        self.invariant_iterators = nn.ModuleDict(invariant_iterators)
+
+    def forward(self, X):
+        equivariant_kernels = [X]
+        result = [equivariant_kernels[1-1]['0_1'][:, 0, 0, None]]
+        for nu in range(2, self.nu_max+1):
+            if (nu <= self.nu_max-self.nu_max//2): 
+                equivariant_kernels.append(self.equivariant_iterators[str(nu)](equivariant_kernels[-1], equivariant_kernels[0]))
+                result.append(equivariant_kernels[-1]['0_1'][:, 0, 0, None])
+            else:
+                result.append(self.invariant_iterators[str(nu)](equivariant_kernels[self.nu_max-self.nu_max//2-1], equivariant_kernels[nu-self.nu_max+self.nu_max//2-1])['0_1'][:, 0, 0, None])
         result = torch.cat(result, dim = -1)
         return result
 
 def compute_kernel(model, first, second, batch_size = 1000, device = 'cpu'):
     all_species = np.unique(np.concatenate([first.keys["species_center"], second.keys["species_center"]]))
-    nu_max = len(model.main) + 2  # nu = 1 and nu = nu_max layers are not counted in model.main
+    nu_max = model.nu_max
 
     n_first = len(np.unique(
         np.concatenate(
