@@ -64,7 +64,7 @@ def get_LE_calculator(l_max, n_max, a, nu, CS, l_nu, l_r):
     def sigma(r):  
         # The function that determines how sigma changes as a function of r.
         # sigma = CS*np.exp(l_r*r*nu)
-        sigma = CS*np.exp(l_r*r) # CS*np.exp(l_nu*nu+l_r*r)
+        sigma = CS*np.exp(l_nu*nu+l_r*r) # CS*np.exp(l_r*r)
         # print(sigma)
         return sigma
 

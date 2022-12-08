@@ -9,12 +9,12 @@ from pytorch_prototype.clebsch_gordan import ClebschGordan
 from equistore import Labels, TensorBlock, TensorMap
 from rascaline import SphericalExpansion
 
-from wigner_kernels import WignerKernel, compute_kernel
-from dataset_processing import get_dataset_slice
-from error_measures import get_sse, get_rmse, get_mae, get_sae
-from validation import ValidationCycle
+from pytorch_prototype.wigner_kernels import WignerKernel, compute_kernel
+from pytorch_prototype.dataset_processing import get_dataset_slice
+from pytorch_prototype.error_measures import get_sse, get_rmse, get_mae, get_sae
+from pytorch_prototype.validation import ValidationCycle
 
-from LE_maths import get_LE_calculator
+from pytorch_prototype.LE_maths import get_LE_calculator
 
 import argparse
 import json
@@ -122,13 +122,12 @@ test_structures = get_dataset_slice(DATASET_PATH, test_slice)
 train_train_kernel = torch.zeros((n_train, n_train, NU_MAX))
 train_test_kernel = torch.zeros((n_train, n_test, NU_MAX))
 
-'''
 if "methane" in DATASET_PATH or "ch4" in DATASET_PATH:
     hypers_spherical_expansion = {
         "cutoff": r_cut,
         "max_radial": 22,
         "max_angular": L_MAX,
-        "atomic_gaussian_width": C*np.exp(LS*nu), 
+        "atomic_gaussian_width": C*np.exp(L_NU*nu), 
         "center_atom_weight": 0.0,
         "radial_basis": {"Gto": {"spline_accuracy": 1e-8}},
         "cutoff_function": {"ShiftedCosine": {"width": 0.5}},
@@ -139,7 +138,7 @@ else:
         "cutoff": r_cut,
         "max_radial": 22,
         "max_angular": L_MAX,
-        "atomic_gaussian_width": C*np.exp(LS*nu),
+        "atomic_gaussian_width": C*np.exp(L_NU*nu),
         "center_atom_weight": 0.0,
         "radial_basis": {"Gto": {"spline_accuracy": 1e-8}},
         "cutoff_function": {"Step": {}}
@@ -147,8 +146,8 @@ else:
         # "radial_scaling":  {"Willatt2018": {"scale": 1.5, "rate": 2.0, "exponent": 6}},
     }
 calculator = SphericalExpansion(**hypers_spherical_expansion)
-'''
-calculator = get_LE_calculator(l_max=L_MAX, n_max=25, a=r_cut, nu=NU_MAX, CS=C, l_nu=L_NU, l_r=L_R)
+
+# calculator = get_LE_calculator(l_max=L_MAX, n_max=25, a=r_cut, nu=NU_MAX, CS=C, l_nu=L_NU, l_r=L_R)
 
 def move_to_torch(rust_map: TensorMap) -> TensorMap:
     torch_blocks = []
@@ -414,11 +413,11 @@ c = torch.linalg.solve(
     train_energies)
 
 test_predictions = (train_test_kernel @ best_coefficients).T @ c
-print(f"Test set MAE (after kernel mixing): {get_mae(test_predictions, test_energies).item()}")
 
 print()
-print("Final result (test MAE):")
-print(n_train, get_mae(test_predictions, test_energies).item())
+print("Final result (test RMSE or MAE):")
+final_result = (get_mae(test_predictions, test_energies).item() if opt_target_name == "mae" else get_rmse(test_predictions, test_energies).item())
+print(n_train, final_result)
 
 '''
 # Simple sum of kernels version

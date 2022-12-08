@@ -26,10 +26,10 @@ def initialize_wigner_single_species_batched(first, second, center_species, idx_
 class WignerKernel(torch.nn.Module):
     def __init__(self, clebsch, lambda_max, num_iterations):
         super(WignerKernel, self).__init__()
-        main = [WignerCombiningUnrolled(clebsch.precomputed_, lambda_max, algorithm = 'vectorized') 
+        main = [WignerCombiningUnrolled(clebsch.precomputed_, lambda_max, algorithm = 'fast_cg')  
                 for _ in range(num_iterations)]
         self.main = nn.ModuleList(main)
-        self.last = WignerCombiningUnrolled(clebsch.precomputed_, 0, algorithm = 'vectorized')
+        self.last = WignerCombiningUnrolled(clebsch.precomputed_, 0, algorithm = 'fast_cg')
     
     #############################
     # Need to try what happens when combining e.g. nu = 2 and nu = 2 kernels

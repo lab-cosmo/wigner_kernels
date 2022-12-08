@@ -4,6 +4,7 @@ import numpy as np
 from pytorch_prototype.utilities import get_central_species, get_structural_indices
 from functorch import vmap
 import tqdm
+import sparse_accumulation
 
 def multiply(first, second, multiplier):
     return [first[0], second[0], first[1] * second[1] * multiplier]
@@ -459,6 +460,16 @@ class WignerCombiningSingleUnrolled(torch.nn.Module):
         self.register_buffer('multiplier_total_aligned',
                              torch.tensor(multiplier_total_aligned).type(torch.get_default_dtype()))
         
+        m1_fast = (2*self.l1+1)*self.m1_aligned+self.m1p_aligned
+        m2_fast = (2*self.l2+1)*self.m2_aligned+self.m2p_aligned
+        mu_fast = (2*self.lambd+1)*self.mu_aligned+self.mup_aligned
+
+        sort_indices = torch.argsort(mu_fast)
+
+        self.m1_fast = m1_fast[sort_indices].cuda()
+        self.m2_fast = m2_fast[sort_indices].cuda()
+        self.mu_fast = mu_fast[sort_indices].cuda()
+        self.multipliers_fast = self.multiplier_total_aligned[sort_indices].cuda()
                     
         
     def forward(self, X1, X2):
@@ -468,6 +479,23 @@ class WignerCombiningSingleUnrolled(torch.nn.Module):
         device = X1.device
         
         algorithm_now = self.algorithm
+        
+        if algorithm_now == 'fast_cg':
+            """            contributions = X1[:, self.m1_aligned, self.m1p_aligned] * X2[:, self.m2_aligned, self.m2p_aligned] \
+            * self.multiplier_total_aligned
+            result1 = torch.zeros([X1.shape[0], (2 * self.lambd + 1) ** 2], device = device)
+            result1.index_add_(1, self.mu_both_aligned, contributions)
+            result1 = result1.reshape(-1, 1, (2 * self.lambd + 1) ** 2)"""
+
+            X1 = X1.reshape(-1, 1, (2*self.l1+1)**2)
+            # print(X1.shape)
+            X2 = X2.reshape(-1, 1, (2*self.l2+1)**2)
+            # print(X2.shape)
+            """            result2 = torch.zeros((X1.shape[0], 1, (2*self.lambd+1)**2), device = X1.device, dtype = X1.dtype)
+            for index in range(m1.shape[0]):
+                result2[:, :, mu[index]] += X1[:, :, m1[index]]*X2[:, :, m2[index]]*multipliers[index]"""
+            result = sparse_accumulation.accumulate(X1, X2, self.mu_fast, (2*self.lambd+1)**2, self.m1_fast, self.m2_fast, self.multipliers_fast)
+            return result.reshape(-1, 2*self.lambd+1, 2*self.lambd+1)
         
         if algorithm_now == 'vectorized':
             contributions = X1[:, self.m1_aligned, self.m1p_aligned] * X2[:, self.m2_aligned, self.m2p_aligned] \

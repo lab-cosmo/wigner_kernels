@@ -9,12 +9,12 @@ from pytorch_prototype.clebsch_gordan import ClebschGordan
 from equistore import Labels, TensorBlock, TensorMap
 from rascaline import SphericalExpansion
 
-from wigner_kernels import WignerKernel, compute_kernel
-from dataset_processing import get_dataset_slice
-from error_measures import get_sse, get_rmse, get_mae, get_sae
-from validation import ValidationCycle
+from pytorch_prototype.wigner_kernels import WignerKernel, compute_kernel
+from pytorch_prototype.dataset_processing import get_dataset_slice
+from pytorch_prototype.error_measures import get_sse, get_rmse, get_mae, get_sae
+from pytorch_prototype.validation import ValidationCycle
 
-from LE_maths import get_LE_calculator
+from pytorch_prototype.LE_maths import get_LE_calculator
 
 import argparse
 import json
@@ -114,7 +114,7 @@ def get_composition_features(frames, all_species):
 print("Gaussian smoothing map for r = 1, 2, 3, 4 A:")
 for nu in range(1, NU_MAX+1):
     print(f"nu = {nu}: {C*np.exp(L_NU*nu+L_R*1)} {C*np.exp(L_NU*nu+L_R*2)} {C*np.exp(L_NU*nu+L_R*3)} {C*np.exp(L_NU*nu+L_R*4)}")
-    # print(f"nu = {nu}: {C*np.exp(L_R*nu*1)} {C*np.exp(L_R*nu*2)} {C*np.exp(L_R*nu*3)} {C*np.exp(L_R*nu*4)}")
+    # print(f"nu = {nu}: {C*np.exp(L_NU*nu)} {C*np.exp(L_NU*nu)} {C*np.exp(L_NU*nu)} {C*np.exp(L_NU*nu)}")
 
 train_structures = get_dataset_slice(DATASET_PATH, train_slice)
 test_structures = get_dataset_slice(DATASET_PATH, test_slice)
@@ -125,13 +125,13 @@ train_test_kernel = torch.zeros((n_train, n_test, NU_MAX))
 for nu in range(1, NU_MAX+1):
 
     print(f"Calculating nu = {nu} kernels")
-    '''
+    """
     if "methane" in DATASET_PATH or "ch4" in DATASET_PATH:
         hypers_spherical_expansion = {
             "cutoff": r_cut,
             "max_radial": 22,
             "max_angular": L_MAX,
-            "atomic_gaussian_width": C*np.exp(LS*nu), 
+            "atomic_gaussian_width": C*np.exp(L_NU*nu),  
             "center_atom_weight": 0.0,
             "radial_basis": {"Gto": {"spline_accuracy": 1e-8}},
             "cutoff_function": {"ShiftedCosine": {"width": 0.5}},
@@ -142,7 +142,7 @@ for nu in range(1, NU_MAX+1):
             "cutoff": r_cut,
             "max_radial": 22,
             "max_angular": L_MAX,
-            "atomic_gaussian_width": C*np.exp(LS*nu),
+            "atomic_gaussian_width": C*np.exp(L_NU*nu),
             "center_atom_weight": 0.0,
             "radial_basis": {"Gto": {"spline_accuracy": 1e-8}},
             "cutoff_function": {"Step": {}}
@@ -150,8 +150,8 @@ for nu in range(1, NU_MAX+1):
             # "radial_scaling":  {"Willatt2018": {"scale": 1.5, "rate": 2.0, "exponent": 6}},
         }
     calculator = SphericalExpansion(**hypers_spherical_expansion)
-    '''
-    calculator = get_LE_calculator(l_max=L_MAX, n_max=16, a=r_cut, nu=nu, CS=C, l_nu=L_NU, l_r=L_R)
+    """
+    calculator = get_LE_calculator(l_max=L_MAX, n_max=25, a=r_cut, nu=nu, CS=C, l_nu=L_NU, l_r=L_R)
 
     def move_to_torch(rust_map: TensorMap) -> TensorMap:
         torch_blocks = []
