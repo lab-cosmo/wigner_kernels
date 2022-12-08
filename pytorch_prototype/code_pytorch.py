@@ -410,7 +410,7 @@ class CentralUniter(torch.nn.Module):
     
     
 class WignerCombiningSingleUnrolled(torch.nn.Module):
-    def __init__(self, clebsch, lambd, algorithm = 'vectorized'):
+    def __init__(self, clebsch, lambd, algorithm = 'vectorized', device = "cuda"):
         super(WignerCombiningSingleUnrolled, self).__init__()
         self.algorithm = algorithm
         self.lambd = lambd
@@ -460,16 +460,17 @@ class WignerCombiningSingleUnrolled(torch.nn.Module):
         self.register_buffer('multiplier_total_aligned',
                              torch.tensor(multiplier_total_aligned).type(torch.get_default_dtype()))
         
+        # Create indices for fast CG iterations:
         m1_fast = (2*self.l1+1)*self.m1_aligned+self.m1p_aligned
         m2_fast = (2*self.l2+1)*self.m2_aligned+self.m2p_aligned
         mu_fast = (2*self.lambd+1)*self.mu_aligned+self.mup_aligned
 
         sort_indices = torch.argsort(mu_fast)
 
-        self.m1_fast = m1_fast[sort_indices].cuda()
-        self.m2_fast = m2_fast[sort_indices].cuda()
-        self.mu_fast = mu_fast[sort_indices].cuda()
-        self.multipliers_fast = self.multiplier_total_aligned[sort_indices].cuda()
+        self.m1_fast = m1_fast[sort_indices].to(device)
+        self.m2_fast = m2_fast[sort_indices].to(device)
+        self.mu_fast = mu_fast[sort_indices].to(device)
+        self.multipliers_fast = self.multiplier_total_aligned[sort_indices].to(device)
                     
         
     def forward(self, X1, X2):
@@ -481,19 +482,8 @@ class WignerCombiningSingleUnrolled(torch.nn.Module):
         algorithm_now = self.algorithm
         
         if algorithm_now == 'fast_cg':
-            """            contributions = X1[:, self.m1_aligned, self.m1p_aligned] * X2[:, self.m2_aligned, self.m2p_aligned] \
-            * self.multiplier_total_aligned
-            result1 = torch.zeros([X1.shape[0], (2 * self.lambd + 1) ** 2], device = device)
-            result1.index_add_(1, self.mu_both_aligned, contributions)
-            result1 = result1.reshape(-1, 1, (2 * self.lambd + 1) ** 2)"""
-
             X1 = X1.reshape(-1, 1, (2*self.l1+1)**2)
-            # print(X1.shape)
             X2 = X2.reshape(-1, 1, (2*self.l2+1)**2)
-            # print(X2.shape)
-            """            result2 = torch.zeros((X1.shape[0], 1, (2*self.lambd+1)**2), device = X1.device, dtype = X1.dtype)
-            for index in range(m1.shape[0]):
-                result2[:, :, mu[index]] += X1[:, :, m1[index]]*X2[:, :, m2[index]]*multipliers[index]"""
             result = sparse_accumulation.accumulate(X1, X2, self.mu_fast, (2*self.lambd+1)**2, self.m1_fast, self.m2_fast, self.multipliers_fast)
             return result.reshape(-1, 2*self.lambd+1, 2*self.lambd+1)
         
@@ -503,16 +493,6 @@ class WignerCombiningSingleUnrolled(torch.nn.Module):
             result = torch.zeros([X1.shape[0], (2 * self.lambd + 1) ** 2], device = device)
             result.index_add_(1, self.mu_both_aligned, contributions)
             return result[:, self.mu_both]
-            
-            '''multipliers = self.multipliers.to(device)
-            mu = self.mu.to(device)
-            contributions = X1[:, :, self.m1_aligned] * X2[:, :, self.m2_aligned] * multipliers
-
-            result = torch.zeros([X1.shape[0], X2.shape[1], 2 * self.lambd + 1], device = device)
-            result.index_add_(2, mu, contributions)
-            return result
-        
-            result = torch.zeros([X1.shape[0], 2 * self.lambd + 1, 2 * self.lambd + 1], device = device)'''
            
         if algorithm_now == 'loops':
             result = torch.zeros([X1.shape[0], 2 * self.lambd + 1, 2 * self.lambd + 1], device = device)
