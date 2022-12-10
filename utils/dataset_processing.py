@@ -41,3 +41,18 @@ def get_composition_features(frames, all_species):
     )
     composition = TensorMap(Labels.single(), blocks=[block])
     return composition.block().values
+
+def move_to_torch(rust_map: TensorMap) -> TensorMap:
+    torch_blocks = []
+    for _, block in rust_map:
+        torch_block = TensorBlock(
+            values=torch.tensor(block.values).to(dtype=torch.get_default_dtype()),
+            samples=block.samples,
+            components=block.components,
+            properties=block.properties,
+        )
+        torch_blocks.append(torch_block)
+    return TensorMap(
+            keys = rust_map.keys,
+            blocks = torch_blocks
+            )

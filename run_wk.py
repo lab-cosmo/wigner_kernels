@@ -10,13 +10,12 @@ rascaline._c_lib._get_library()
 from equistore import Labels
 from rascaline import SphericalExpansion
 
-from pytorch_prototype.clebsch_gordan import ClebschGordan
-from pytorch_prototype.wigner_kernels import WignerKernelFullIterative, WignerKernelReducedCost, compute_kernel
-from pytorch_prototype.dataset_processing import get_dataset_slice, get_composition_features
-from pytorch_prototype.error_measures import get_sse, get_rmse, get_mae, get_sae
-from pytorch_prototype.validation import ValidationCycle
-from pytorch_prototype.LE_maths import get_LE_calculator
-from pytorch_prototype.utilities import move_to_torch
+from utils.clebsch_gordan import ClebschGordan
+from utils.wigner_kernels import WignerKernelFullIterations, WignerKernelReducedCost, compute_kernel
+from utils.dataset_processing import get_dataset_slice, get_composition_features, move_to_torch
+from utils.error_measures import get_sse, get_rmse, get_mae, get_sae
+from utils.validation import ValidationCycle
+from utils.LE_maths import get_LE_calculator
 
 import argparse
 import json
@@ -75,11 +74,14 @@ HARTREE_TO_EV = 27.211386245988
 HARTREE_TO_KCALMOL = 627.5
 EV_TO_KCALMOL = HARTREE_TO_KCALMOL/HARTREE_TO_EV
 
-if CONVERSION_FACTOR == "hartree to kcal/mol": 
-    CONVERSION_FACTOR = HARTREE_TO_KCALMOL
-else:
-    print("conversion factor ???")
-    exit()
+conversions = {}
+conversions["HARTREE_TO_EV"] = 27.211386245988
+conversions["HARTREE_TO_KCAL_MOL"] = 627.509608030593
+conversions["EV_TO_KCAL_MOL"] = conversions["HARTREE_TO_KCAL_MOL"]/conversions["HARTREE_TO_EV"]
+conversions["KCAL_MOL_TO_MEV"] = 0.0433641153087705*1000.0
+conversions["METHANE_FORCE"] = conversions["HARTREE_TO_KCAL_MOL"]/0.529177
+
+CONVERSION_FACTOR = conversions[CONVERSION_FACTOR]
 
 n_validation_splits = 10
 assert n_train % n_validation_splits == 0
@@ -101,22 +103,22 @@ test_structures = get_dataset_slice(DATASET_PATH, test_slice)
 all_species = np.sort(np.unique(np.concatenate([train_structure.numbers for train_structure in train_structures] + [test_structure.numbers for test_structure in test_structures])))
 
 train_train_kernel = torch.zeros((n_train, n_train, NU_MAX+1))
-train_test_kernel = torch.zeros((n_train, n_test, NU_MAX+1))
+test_train_kernel = torch.zeros((n_test, n_train, NU_MAX+1))
 
 print("Calculating composition kernels", flush = True)
 comp_train = get_composition_features(train_structures, all_species)
 comp_test = get_composition_features(test_structures, all_species)
 train_train_nu0_kernel = comp_train @ comp_train.T
-train_test_nu0_kernel = comp_train @ comp_test.T
+test_train_nu0_kernel = comp_test @ comp_train.T
 train_train_kernel[:, :, 0] = train_train_nu0_kernel
-train_test_kernel[:, :, 0] = train_test_nu0_kernel
+test_train_kernel[:, :, 0] = test_train_nu0_kernel
 print("Composition kernels done", flush = True)
 
 train_energies = [structure.info[TARGET_KEY] for structure in train_structures]
-train_energies = torch.tensor(train_energies, dtype = torch.get_default_dtype()) * CONVERSION_FACTOR
+train_energies = torch.tensor(train_energies, dtype = torch.get_default_dtype(), device = DEVICE) * CONVERSION_FACTOR
 
 test_energies = [structure.info[TARGET_KEY] for structure in test_structures]
-test_energies = torch.tensor(test_energies, dtype = torch.get_default_dtype()) * CONVERSION_FACTOR
+test_energies = torch.tensor(test_energies, dtype = torch.get_default_dtype(), device = DEVICE) * CONVERSION_FACTOR
 
 if L_NU == 0.0:
     """
@@ -166,7 +168,7 @@ if L_NU == 0.0:
     print("Expansion coefficients done", flush = True)
 
     if cg_mode == "full":
-        model = WignerKernelFullIterative(clebsch, L_MAX, NU_MAX)
+        model = WignerKernelFullIterations(clebsch, L_MAX, NU_MAX)
     else:
         model = WignerKernelReducedCost(clebsch, L_MAX, NU_MAX)
     model = model.to(DEVICE)
@@ -174,7 +176,7 @@ if L_NU == 0.0:
     print("Computing train-train-kernels", flush = True)
     train_train_kernel[:, :, 1:NU_MAX+1] = compute_kernel(model, train_coefs, train_coefs, batch_size = BATCH_SIZE, device = DEVICE)
     print("Computing train-test-kernels", flush = True)
-    train_test_kernel[:, :, 1:NU_MAX+1] = compute_kernel(model, train_coefs, test_coefs, batch_size = BATCH_SIZE, device = DEVICE)
+    test_train_kernel[:, :, 1:NU_MAX+1] = compute_kernel(model, test_coefs, train_coefs, batch_size = BATCH_SIZE, device = DEVICE)
 
 else:
     for nu in range(1, NU_MAX+1):
@@ -228,7 +230,7 @@ else:
         # Kernel computation
 
         if cg_mode == "full":
-            model = WignerKernelFullIterative(clebsch, L_MAX, nu)
+            model = WignerKernelFullIterations(clebsch, L_MAX, nu)
         else:
             model = WignerKernelReducedCost(clebsch, L_MAX, nu)
         model = model.to(DEVICE)
@@ -236,7 +238,7 @@ else:
         print("Computing train-train-kernels", flush = True)
         train_train_kernel[:, :, nu] = compute_kernel(model, train_coefs, train_coefs, batch_size = BATCH_SIZE, device = DEVICE)[nu-1]
         print("Computing train-test-kernels", flush = True)
-        train_test_kernel[:, :, nu] = compute_kernel(model, train_coefs, test_coefs, batch_size = BATCH_SIZE, device = DEVICE)[nu-1]
+        test_train_kernel[:, :, nu] = compute_kernel(model, test_coefs, train_coefs, batch_size = BATCH_SIZE, device = DEVICE)[nu-1]
 
 
 
@@ -249,7 +251,10 @@ for iota in range(NU_MAX+1):
 
 print("Beginning hyperparameter optimization")
 
-validation_cycle = ValidationCycle(nu_max = NU_MAX, alpha_exp = 0.0)
+train_train_kernel = train_train_kernel.to(DEVICE)
+test_train_kernel = test_train_kernel.to(DEVICE)
+
+validation_cycle = ValidationCycle(nu_max = NU_MAX, alpha_exp = 0.0).to(DEVICE)
 
 def validation_loss_for_global_optimization(x):
 
@@ -259,7 +264,7 @@ def validation_loss_for_global_optimization(x):
         C0 = np.exp(np.log(10.0)*x[2])
         validation_cycle.coefficients.weight = torch.nn.Parameter(torch.tensor([C0] + [
             C*alpha**nu/factorial(nu) for nu in range(1, NU_MAX+1)
-        ]).reshape(1, -1))
+        ], device = DEVICE).reshape(1, -1))
     else:
         validation_cycle.coefficients.weight = torch.nn.Parameter(torch.exp(np.log(10.0)*torch.tensor(x[0:NU_MAX+1], dtype = torch.get_default_dtype()).reshape(1, -1)))
 
@@ -268,7 +273,7 @@ def validation_loss_for_global_optimization(x):
         index_validation_start = i_validation_split*n_validation
         index_validation_stop = index_validation_start + n_validation
 
-        K_train_sub = torch.empty((n_train_sub, n_train_sub, NU_MAX+1))
+        K_train_sub = torch.empty((n_train_sub, n_train_sub, NU_MAX+1), device = train_train_kernel.device)
         K_train_sub[:index_validation_start, :index_validation_start , :] = train_train_kernel[:index_validation_start, :index_validation_start , :]
         if i_validation_split != n_validation_splits - 1:
             K_train_sub[:index_validation_start, index_validation_start: , :] = train_train_kernel[:index_validation_start, index_validation_stop: , :]
@@ -296,18 +301,19 @@ def validation_loss_for_global_optimization(x):
         else:
             validation_loss = np.sqrt(validation_loss/n_train)    
 
-    # print(x, validation_loss)
+    print(x, validation_loss)
     return validation_loss
 
 if optimization_mode == "kernel_exp":
-    bounds = [(0.0, 10.0), (0.0, 7.0), (0.0, 14.0)]
+    # bounds = [(0.0, 10.0), (0.0, 7.0), (5.0, 14.0)]
+    bounds = [(0.0, 10.0), (0.0, 7.0), (5.0, 13.0)]
     x0 = np.array([1.0, 0.5, 5])
     solution = sp.optimize.dual_annealing(validation_loss_for_global_optimization, bounds = bounds, x0 = x0, no_local_search = True)
     print(solution.x)
     print(solution.fun)
     best_coefficients = torch.tensor([np.exp(np.log(10.0)*solution.x[2])] + [
             np.exp(np.log(10.0)*solution.x[0])*solution.x[1]**nu/factorial(nu) for nu in range(1, NU_MAX+1)
-        ])
+        ], device = DEVICE)
     print("Adaptive equivalent:", best_coefficients)
 else:
     bounds = [(-5.0, 14.0) for _ in range(NU_MAX+1)]
@@ -320,11 +326,11 @@ else:
 
 c = torch.linalg.solve(
     train_train_kernel @ best_coefficients +  # nu = 1, ..., 4 kernels
-    torch.eye(n_train)  # regularization
+    torch.eye(n_train, device = train_train_kernel.device)  # regularization
     , 
     train_energies)
 
-test_predictions = (train_test_kernel @ best_coefficients).T @ c
+test_predictions = test_train_kernel @ best_coefficients @ c
 
 print()
 print("Final result (test RMSE or MAE):")

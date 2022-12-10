@@ -1,5 +1,5 @@
 import torch
-from pytorch_prototype.code_pytorch import *
+from utils.code_pytorch import *
 from pytorch_prototype.utilities import *
 
 def initialize_wigner_single_l(first, second):

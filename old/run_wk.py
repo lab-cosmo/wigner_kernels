@@ -3,15 +3,15 @@ import copy
 import numpy as np
 import scipy as sp
 
-from pytorch_prototype.clebsch_gordan import ClebschGordan
+from utils.clebsch_gordan import ClebschGordan
 
 from equistore import Labels, TensorBlock, TensorMap
 from rascaline import SphericalExpansion
 
-from wigner_kernels import WignerKernel, compute_kernel
-from dataset_processing import get_dataset_slice
-from error_measures import get_sse, get_rmse, get_mae
-from validation import ValidationCycle
+from utils.wigner_kernels import WignerKernel, compute_kernel
+from utils.dataset_processing import get_dataset_slice
+from utils.error_measures import get_sse, get_rmse, get_mae
+from utils.validation import ValidationCycle
 
 # torch.set_default_dtype(torch.float64)
 # torch.manual_seed(1234)

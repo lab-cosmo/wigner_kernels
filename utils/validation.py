@@ -27,7 +27,7 @@ class ValidationCycle(torch.nn.Module):
         n_train = K_train.shape[0] 
         c = torch.linalg.solve(
         self.coefficients(K_train).squeeze(dim = -1) +  # nu = 1, ..., 4 kernels
-        sigma * torch.eye(n_train)  # regularization
+        sigma * torch.eye(n_train, device = K_train.device)  # regularization
         , 
         y_train)
         y_val_predictions = self.coefficients(K_val).squeeze(dim = -1) @ c

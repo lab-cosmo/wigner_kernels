@@ -1,6 +1,7 @@
+import numpy as np
 import torch
-from pytorch_prototype.code_pytorch import *
-from pytorch_prototype.utilities import *
+from utils.wigner_iterations import WignerCombiningUnrolled
+import tqdm
 
 def initialize_wigner_single_l(first, second):
     first_b_size, first_m_size = first.shape[0], first.shape[1]
@@ -23,15 +24,15 @@ def initialize_wigner_single_species_batched(first, second, center_species, idx_
                 )
     return result
 
-class WignerKernelFullIterative(torch.nn.Module):
+class WignerKernelFullIterations(torch.nn.Module):
     def __init__(self, clebsch, lambda_max, nu_max):
-        super(WignerKernelFullIterative, self).__init__()
+        super(WignerKernelFullIterations, self).__init__()
         self.nu_max = nu_max
         equivariant_iterators = {
             str(nu) : WignerCombiningUnrolled(clebsch.precomputed_, lambda_max, algorithm = 'fast_cg')  
             for nu in range(2, nu_max)
         }
-        self.equivariant_iterators = nn.ModuleDict(equivariant_iterators)
+        self.equivariant_iterators = torch.nn.ModuleDict(equivariant_iterators)
         self.invariant_iterator = WignerCombiningUnrolled(clebsch.precomputed_, 0, algorithm = 'fast_cg')
             
     def forward(self, X):
@@ -54,12 +55,12 @@ class WignerKernelReducedCost(torch.nn.Module):
             str(nu): WignerCombiningUnrolled(clebsch.precomputed_, lambda_max, algorithm = 'fast_cg') 
             for nu in range(2, nu_max-nu_max//2+1)
             }
-        self.equivariant_iterators = nn.ModuleDict(equivariant_iterators)
+        self.equivariant_iterators = torch.nn.ModuleDict(equivariant_iterators)
         invariant_iterators = {
             str(nu): WignerCombiningUnrolled(clebsch.precomputed_, 0, algorithm = 'fast_cg')
             for nu in range(nu_max-nu_max//2+1, nu_max+1)
             }
-        self.invariant_iterators = nn.ModuleDict(invariant_iterators)
+        self.invariant_iterators = torch.nn.ModuleDict(invariant_iterators)
 
     def forward(self, X):
         equivariant_kernels = [X]

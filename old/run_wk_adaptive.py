@@ -4,17 +4,17 @@ import numpy as np
 import scipy as sp
 from scipy import optimize
 
-from pytorch_prototype.clebsch_gordan import ClebschGordan
+from utils.clebsch_gordan import ClebschGordan
 
 from equistore import Labels, TensorBlock, TensorMap
 from rascaline import SphericalExpansion
 
-from pytorch_prototype.wigner_kernels import WignerKernel, compute_kernel
-from pytorch_prototype.dataset_processing import get_dataset_slice
-from pytorch_prototype.error_measures import get_sse, get_rmse, get_mae, get_sae
-from pytorch_prototype.validation import ValidationCycle
+from utils.wigner_kernels import WignerKernel, compute_kernel
+from utils.dataset_processing import get_dataset_slice
+from utils.error_measures import get_sse, get_rmse, get_mae, get_sae
+from utils.validation import ValidationCycle
 
-from pytorch_prototype.LE_maths import get_LE_calculator
+from utils.LE_maths import get_LE_calculator
 
 import argparse
 import json
