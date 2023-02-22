@@ -7,6 +7,10 @@ outputs/
 scripts/
 splines/
 test*
+large*
+*dipole*
+scan*
+*.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

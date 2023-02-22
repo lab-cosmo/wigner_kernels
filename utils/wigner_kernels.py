@@ -29,11 +29,11 @@ class WignerKernelFullIterations(torch.nn.Module):
         super(WignerKernelFullIterations, self).__init__()
         self.nu_max = nu_max
         equivariant_iterators = {
-            str(nu) : WignerCombiningUnrolled(clebsch.precomputed_, lambda_max, algorithm = 'fast_cg')  
+            str(nu) : WignerCombiningUnrolled(clebsch.precomputed_, lambda_max, algorithm = 'dense')  
             for nu in range(2, nu_max)
         }
         self.equivariant_iterators = torch.nn.ModuleDict(equivariant_iterators)
-        self.invariant_iterator = WignerCombiningUnrolled(clebsch.precomputed_, 0, algorithm = 'fast_cg')
+        self.invariant_iterator = WignerCombiningUnrolled(clebsch.precomputed_, 0, algorithm = 'dense')
             
     def forward(self, X):
         result = []
@@ -52,12 +52,12 @@ class WignerKernelReducedCost(torch.nn.Module):
         super(WignerKernelReducedCost, self).__init__()
         self.nu_max = nu_max
         equivariant_iterators = {
-            str(nu): WignerCombiningUnrolled(clebsch.precomputed_, lambda_max, algorithm = 'fast_cg') 
+            str(nu): WignerCombiningUnrolled(clebsch.precomputed_, lambda_max, algorithm = 'dense') 
             for nu in range(2, nu_max-nu_max//2+1)
             }
         self.equivariant_iterators = torch.nn.ModuleDict(equivariant_iterators)
         invariant_iterators = {
-            str(nu): WignerCombiningUnrolled(clebsch.precomputed_, 0, algorithm = 'fast_cg')
+            str(nu): WignerCombiningUnrolled(clebsch.precomputed_, 0, algorithm = 'dense')
             for nu in range(nu_max-nu_max//2+1, nu_max+1)
             }
         self.invariant_iterators = torch.nn.ModuleDict(invariant_iterators)
@@ -87,19 +87,19 @@ def compute_kernel(model, first, second, batch_size = 1000, device = 'cpu'):
             [second.block(spherical_harmonics_l=0, species_center=center_species).samples["structure"] for center_species in second.keys["species_center"]]
             )))
     
-    wigner_invariants = torch.zeros((n_first, n_second, nu_max))
+    wigner_invariants = torch.zeros((n_first, n_second, nu_max), device=device)
     batch_size_each = int(np.sqrt(batch_size))  # A batch size for each of the two tensor maps involved.
   
     for center_species in all_species:
         # if center_species == 1: continue  # UNCOMMENT FOR METHANE DATASET C-ONLY VERSION
         print(f"     Calculating kernels for center species {center_species}", flush = True)
         try:
-            structures_first = torch.tensor(first.block(spherical_harmonics_l=0, species_center=center_species).samples["structure"], dtype=torch.long)
+            structures_first = torch.tensor(first.block(spherical_harmonics_l=0, species_center=center_species).samples["structure"], dtype=torch.long, device=wigner_invariants.device)
         except ValueError:
             print("First does not contain the above center species")
             continue
         try:
-            structures_second = torch.tensor(second.block(spherical_harmonics_l=0, species_center=center_species).samples["structure"], dtype=torch.long)
+            structures_second = torch.tensor(second.block(spherical_harmonics_l=0, species_center=center_species).samples["structure"], dtype=torch.long, device=wigner_invariants.device)
         except ValueError:
             print("Second does not contain the above center species")
             continue
@@ -121,17 +121,17 @@ def compute_kernel(model, first, second, batch_size = 1000, device = 'cpu'):
                     center_species,
                     (idx_1_begin, idx_1_end),
                     (idx_2_begin, idx_2_end),
-                    )            
+                )            
 
                 for key in wigner_c.keys():
                     wigner_c[key] = wigner_c[key].reshape([dimension_1*dimension_2, wigner_c[key].shape[2], wigner_c[key].shape[3]])               
                 now = {}
                 for key in wigner_c.keys():
-                    now[key] = wigner_c[key].to(device)
-                result_now = model(now).to('cpu')
+                    now[key] = wigner_c[key]
+                result_now = model(now)
                 result_now = result_now.reshape([dimension_1, dimension_2, nu_max])
 
-                temp = torch.zeros((wigner_invariants.shape[0], result_now.shape[1], nu_max))
+                temp = torch.zeros((wigner_invariants.shape[0], result_now.shape[1], nu_max), device = result_now.device)
                 temp.index_add_(dim=0, index=structures_first[idx_1_begin:idx_1_end], source=result_now)
                 wigner_invariants.index_add_(dim=1, index=structures_second[idx_2_begin:idx_2_end], source=temp)
 

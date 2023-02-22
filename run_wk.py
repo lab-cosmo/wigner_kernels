@@ -28,13 +28,25 @@ parser.add_argument(
     help="The file containing the parameters. JSON formatted dictionary.",
 )
 
+parser.add_argument(
+    "n_train",
+    type=str,
+    help="The file containing the parameters. JSON formatted dictionary.",
+)
+
+parser.add_argument(
+    "random_seed",
+    type=str,
+    help="The file containing the parameters. JSON formatted dictionary.",
+)
+
 args = parser.parse_args()
 parameters = args.parameters
 
 param_dict = json.load(open(parameters, "r"))
 DTYPE = param_dict["data type"]
 print(f"data type: {DTYPE}")
-RANDOM_SEED = param_dict["random seed"]
+RANDOM_SEED = int(args.random_seed) # param_dict["random seed"]
 print(f"random seed: {RANDOM_SEED}")
 BATCH_SIZE = param_dict["batch size"]
 print(f"batch size: {BATCH_SIZE}")
@@ -46,7 +58,7 @@ DATASET_PATH = param_dict["dataset path"]
 print(f"dataset path: {DATASET_PATH}")
 n_test = param_dict["n_test"]
 print(f"n_test: {n_test}")
-n_train = param_dict["n_train"]
+n_train = int(args.n_train) # param_dict["n_train"]
 print(f"n_train: {n_train}")
 r_cut = param_dict["r_cut"]
 print(f"r_cut: {r_cut}")
@@ -98,20 +110,19 @@ print("Gaussian smoothing map for r = 1, 2, 3, 4 A:")
 for nu in range(1, NU_MAX+1):
     print(f"nu = {nu}: {C*np.exp(L_NU*nu+L_R*1)} {C*np.exp(L_NU*nu+L_R*2)} {C*np.exp(L_NU*nu+L_R*3)} {C*np.exp(L_NU*nu+L_R*4)}")
 
-train_structures = get_dataset_slice(DATASET_PATH, train_slice)
-test_structures = get_dataset_slice(DATASET_PATH, test_slice)
+train_structures, test_structures = get_dataset_slice(DATASET_PATH, train_slice, test_slice)
 all_species = np.sort(np.unique(np.concatenate([train_structure.numbers for train_structure in train_structures] + [test_structure.numbers for test_structure in test_structures])))
 
-train_train_kernel = torch.zeros((n_train, n_train, NU_MAX+1))
-test_train_kernel = torch.zeros((n_test, n_train, NU_MAX+1))
+train_train_kernel = torch.zeros((n_train, n_train, NU_MAX+1), device=DEVICE)
+test_train_kernel = torch.zeros((n_test, n_train, NU_MAX+1), device=DEVICE)
 
 print("Calculating composition kernels", flush = True)
 comp_train = get_composition_features(train_structures, all_species)
 comp_test = get_composition_features(test_structures, all_species)
 train_train_nu0_kernel = comp_train @ comp_train.T
 test_train_nu0_kernel = comp_test @ comp_train.T
-train_train_kernel[:, :, 0] = train_train_nu0_kernel
-test_train_kernel[:, :, 0] = test_train_nu0_kernel
+train_train_kernel[:, :, 0] = train_train_nu0_kernel.to(DEVICE)
+test_train_kernel[:, :, 0] = test_train_nu0_kernel.to(DEVICE)
 print("Composition kernels done", flush = True)
 
 train_energies = [structure.info[TARGET_KEY] for structure in train_structures]
@@ -153,17 +164,17 @@ if L_NU == 0.0:
     print("Calculating expansion coefficients", flush = True)
 
     train_coefs = calculator.compute(train_structures)
-    train_coefs = move_to_torch(train_coefs)
+    train_coefs = move_to_torch(train_coefs, device=DEVICE)
 
     test_coefs = calculator.compute(test_structures)
-    test_coefs = move_to_torch(test_coefs)
+    test_coefs = move_to_torch(test_coefs, device=DEVICE)
 
     neighbor_species_labels = Labels(
         names=["species_neighbor"],
         values=np.array(all_species, dtype=np.int32).reshape(-1, 1),
     )
-    train_coefs.keys_to_properties(neighbor_species_labels)
-    test_coefs.keys_to_properties(neighbor_species_labels)
+    train_coefs = train_coefs.keys_to_properties(neighbor_species_labels)
+    test_coefs = test_coefs.keys_to_properties(neighbor_species_labels)
 
     print("Expansion coefficients done", flush = True)
 
@@ -251,8 +262,8 @@ for iota in range(NU_MAX+1):
 
 print("Beginning hyperparameter optimization")
 
-train_train_kernel = train_train_kernel.to(DEVICE)
-test_train_kernel = test_train_kernel.to(DEVICE)
+train_train_kernel = train_train_kernel
+test_train_kernel = test_train_kernel
 
 validation_cycle = ValidationCycle(nu_max = NU_MAX, alpha_exp = 0.0).to(DEVICE)
 
@@ -262,9 +273,13 @@ def validation_loss_for_global_optimization(x):
         C = np.exp(np.log(10.0)*x[0])
         alpha = x[1]
         C0 = np.exp(np.log(10.0)*x[2])
-        validation_cycle.coefficients.weight = torch.nn.Parameter(torch.tensor([C0] + [
+        validation_cycle.coefficients.weight = torch.nn.Parameter(
+            torch.tensor(
+            [C0] + 
+            [
             C*alpha**nu/factorial(nu) for nu in range(1, NU_MAX+1)
-        ], device = DEVICE).reshape(1, -1))
+            ], device = DEVICE).reshape(1, -1)
+        )
     else:
         validation_cycle.coefficients.weight = torch.nn.Parameter(torch.exp(np.log(10.0)*torch.tensor(x[0:NU_MAX+1], dtype = torch.get_default_dtype()).reshape(1, -1)))
 
@@ -289,11 +304,15 @@ def validation_loss_for_global_optimization(x):
         y_validation = train_energies[index_validation_start:index_validation_stop] 
 
         with torch.no_grad():
-            validation_predictions = validation_cycle(K_train_sub, y_train_sub, K_validation)
-            if opt_target_name == "mae":
-                validation_loss += get_sae(validation_predictions, y_validation).item()
-            else:
-                validation_loss += get_sse(validation_predictions, y_validation).item()
+            try:
+                validation_predictions = validation_cycle(K_train_sub, y_train_sub, K_validation)
+                if opt_target_name == "mae":
+                    validation_loss += get_sae(validation_predictions, y_validation).item()
+                else:
+                    validation_loss += get_sse(validation_predictions, y_validation).item()
+            except:
+                print("WARNING: tried singular matrix in global optimization")
+                validation_loss += 10e30
 
     with torch.no_grad():
         if opt_target_name == "mae":
@@ -301,20 +320,63 @@ def validation_loss_for_global_optimization(x):
         else:
             validation_loss = np.sqrt(validation_loss/n_train)    
 
-    print(x, validation_loss)
+    # print(x, validation_loss)
     return validation_loss
 
 if optimization_mode == "kernel_exp":
-    # bounds = [(0.0, 10.0), (0.0, 7.0), (5.0, 14.0)]
-    bounds = [(0.0, 10.0), (0.0, 7.0), (5.0, 13.0)]
+    
+    bounds = [(0.0, 12.0), (0.0, 10.0), (1.0, 15.0)]
     x0 = np.array([1.0, 0.5, 5])
     solution = sp.optimize.dual_annealing(validation_loss_for_global_optimization, bounds = bounds, x0 = x0, no_local_search = True)
     print(solution.x)
+
+    if solution.x[0] < bounds[0][0]+0.2 or solution.x[0] > bounds[0][1]-0.2:
+        print("solution[0] hit a boundary")
+    if solution.x[1] < bounds[1][0]+0.2 or solution.x[1] > bounds[1][1]-0.2:
+        print("solution[1] hit a boundary")
+    if solution.x[2] < bounds[2][0]+0.2 or solution.x[2] > bounds[2][1]-0.2:
+        print("solution[2] hit a boundary")
+
     print(solution.fun)
     best_coefficients = torch.tensor([np.exp(np.log(10.0)*solution.x[2])] + [
             np.exp(np.log(10.0)*solution.x[0])*solution.x[1]**nu/factorial(nu) for nu in range(1, NU_MAX+1)
         ], device = DEVICE)
     print("Adaptive equivalent:", best_coefficients)
+    """
+    # Version with only two parameters, grid search. 
+    # Sacrifices 5-10% accuracy
+    validation_best = 1e30
+    for C_exp in np.linspace(4, 10, 7):#range(5, 10):#
+        for exp in np.linspace(0, 0.5, 11):#range(5, 13):#
+            C = 10.0**C_exp
+            print(C_exp, exp)
+            
+            #coefficients = torch.tensor([1.0e9] + # You could decrease it even more... 
+            #    [C * exp**nu / math.factorial(nu) for nu in range(1, 5)], 
+            #    dtype = torch.get_default_dtype())
+            
+            coefficients = torch.tensor( 
+                [C * exp**nu / factorial(nu) for nu in range(NU_MAX+1)], 
+                dtype = torch.get_default_dtype(),
+                device = train_train_kernel.device
+            )
+            print(coefficients)
+            x = np.array([C_exp, exp, -1000000.0])
+
+            validation_error = validation_loss_for_global_optimization(x)
+            print("Validation error", validation_error, "kcal/mol")
+            #print("Validation", validation_error*43.36411531, "meV")
+
+            if validation_error < validation_best:
+                best_coefficients = coefficients
+                validation_best = validation_error
+                best_C_exp = C_exp
+                best_exp = exp
+
+    print(best_C_exp, best_exp)     
+    print("Final validation error", validation_best)
+    """
+
 else:
     bounds = [(-5.0, 14.0) for _ in range(NU_MAX+1)]
     x0 = [0.0] * (NU_MAX+1)

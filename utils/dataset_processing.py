@@ -4,21 +4,35 @@ import ase
 from ase import io
 from equistore import Labels, TensorBlock, TensorMap
 
-def get_dataset_slice(dataset_path, slice):
-    
-    if "methane" in dataset_path:
-        structures = ase.io.read(dataset_path, index = slice)
-    else:  # QM7 and QM9 don't seem to be shuffled randomly 
+def get_dataset_slice(dataset_path, train_slice, test_slice):
+
+    if "methane" in dataset_path:  # Methane: very large: only take first 500000 structures and shuffle
+        print("Reading dataset")
+        all_structures = ase.io.read(dataset_path, index = ":500000")
         print("Shuffling and extracting from dataset")
-        all_structures = ase.io.read(dataset_path, index = ":")
-        print("Total length:", len(all_structures))
         np.random.shuffle(all_structures)
-        index_begin = int(slice.split(":")[0])
-        index_end = int(slice.split(":")[1])
-        structures = all_structures[index_begin:index_end]
+        train_index_begin = int(train_slice.split(":")[0])
+        train_index_end = int(train_slice.split(":")[1])
+        train_structures = all_structures[train_index_begin:train_index_end]
+        test_index_begin = int(test_slice.split(":")[0])
+        test_index_end = int(test_slice.split(":")[1])
+        test_structures = all_structures[test_index_begin:test_index_end]
         print("Shuffling and extraction done")
 
-    return structures
+    else:  # Any other dataset: shuffle randomly
+        print("Reading dataset")
+        all_structures = ase.io.read(dataset_path, index = ":")
+        print("Shuffling and extracting from dataset")
+        np.random.shuffle(all_structures)
+        train_index_begin = int(train_slice.split(":")[0])
+        train_index_end = int(train_slice.split(":")[1])
+        train_structures = all_structures[train_index_begin:train_index_end]
+        test_index_begin = int(test_slice.split(":")[0])
+        test_index_end = int(test_slice.split(":")[1])
+        test_structures = all_structures[test_index_begin:test_index_end]
+        print("Shuffling and extraction done")
+
+    return train_structures, test_structures
 
 def get_composition_features(frames, all_species):
     species_dict = {s: i for i, s in enumerate(all_species)}
@@ -42,11 +56,11 @@ def get_composition_features(frames, all_species):
     composition = TensorMap(Labels.single(), blocks=[block])
     return composition.block().values
 
-def move_to_torch(rust_map: TensorMap) -> TensorMap:
+def move_to_torch(rust_map: TensorMap, device: str) -> TensorMap:
     torch_blocks = []
     for _, block in rust_map:
         torch_block = TensorBlock(
-            values=torch.tensor(block.values).to(dtype=torch.get_default_dtype()),
+            values=torch.tensor(block.values, dtype=torch.get_default_dtype(), device=device),
             samples=block.samples,
             components=block.components,
             properties=block.properties,
@@ -55,4 +69,4 @@ def move_to_torch(rust_map: TensorMap) -> TensorMap:
     return TensorMap(
             keys = rust_map.keys,
             blocks = torch_blocks
-            )
+        )

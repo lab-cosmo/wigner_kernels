@@ -97,57 +97,68 @@ class WignerCombiningSingleUnrolled(torch.nn.Module):
         self.l1 = (clebsch.shape[0] - 1) // 2
         self.l2 = (clebsch.shape[1] - 1) // 2
         self.transformation = precompute_transformation(clebsch, self.l1, self.l2, lambd)
+
+        # if algorithm == "vectorized" or algorithm == "fast_wigner" or algorithm == "loops":
+        if True:
         
-        mu_both_now = 0
-        mu_both = np.zeros([2 * self.lambd + 1, 2 * self.lambd + 1], dtype = int)
-        for mu in range(0, 2 * self.lambd + 1):
-            for mup in range(0, 2 * self.lambd + 1):
-                mu_both[mu, mup] = mu_both_now
-                mu_both_now += 1
-                
-        m1_aligned, m2_aligned, mu_aligned = [], [], []
-        m1p_aligned, m2p_aligned, mup_aligned = [], [], []
-        multiplier_total_aligned = []
-        mu_both_aligned = []
-        
-        for mu in range(0, 2 * self.lambd + 1):
-            for m1, m2, multiplier in self.transformation[mu]:
+            mu_both_now = 0
+            mu_both = np.zeros([2 * self.lambd + 1, 2 * self.lambd + 1], dtype = int)
+            for mu in range(0, 2 * self.lambd + 1):
                 for mup in range(0, 2 * self.lambd + 1):
-                    for m1p, m2p, multiplierp in self.transformation[mup]:
-                        m1_aligned.append(m1)
-                        m2_aligned.append(m2)
-                        mu_aligned.append(mu)
-                        m1p_aligned.append(m1p)
-                        m2p_aligned.append(m2p)
-                        mup_aligned.append(mup)
-                        multiplier_total_aligned.append(multiplier * multiplierp)
-                        mu_both_aligned.append(mu_both[mu, mup])
-        
-        self.register_buffer('m1_aligned', torch.LongTensor(m1_aligned))
-        self.register_buffer('m2_aligned', torch.LongTensor(m2_aligned))
-        self.register_buffer('mu_aligned', torch.LongTensor(mu_aligned)) 
-        
-        self.register_buffer('m1p_aligned', torch.LongTensor(m1p_aligned))
-        self.register_buffer('m2p_aligned', torch.LongTensor(m2p_aligned))
-        self.register_buffer('mup_aligned', torch.LongTensor(mup_aligned))
-        
-        self.register_buffer('mu_both_aligned', torch.LongTensor(mu_both_aligned))
-        self.register_buffer('mu_both', torch.LongTensor(mu_both))
-        
-        self.register_buffer('multiplier_total_aligned',
-                             torch.tensor(multiplier_total_aligned).type(torch.get_default_dtype()))
-        
-        # Create indices for fast CG iterations:
-        m1_fast = (2*self.l1+1)*self.m1_aligned+self.m1p_aligned
-        m2_fast = (2*self.l2+1)*self.m2_aligned+self.m2p_aligned
-        mu_fast = (2*self.lambd+1)*self.mu_aligned+self.mup_aligned
+                    mu_both[mu, mup] = mu_both_now
+                    mu_both_now += 1
+                    
+            m1_aligned, m2_aligned, mu_aligned = [], [], []
+            m1p_aligned, m2p_aligned, mup_aligned = [], [], []
+            multiplier_total_aligned = []
+            mu_both_aligned = []
+            
+            for mu in range(0, 2 * self.lambd + 1):
+                for m1, m2, multiplier in self.transformation[mu]:
+                    for mup in range(0, 2 * self.lambd + 1):
+                        for m1p, m2p, multiplierp in self.transformation[mup]:
+                            m1_aligned.append(m1)
+                            m2_aligned.append(m2)
+                            mu_aligned.append(mu)
+                            m1p_aligned.append(m1p)
+                            m2p_aligned.append(m2p)
+                            mup_aligned.append(mup)
+                            multiplier_total_aligned.append(multiplier * multiplierp)
+                            mu_both_aligned.append(mu_both[mu, mup])
+            
+            self.register_buffer('m1_aligned', torch.LongTensor(m1_aligned))
+            self.register_buffer('m2_aligned', torch.LongTensor(m2_aligned))
+            self.register_buffer('mu_aligned', torch.LongTensor(mu_aligned)) 
+            
+            self.register_buffer('m1p_aligned', torch.LongTensor(m1p_aligned))
+            self.register_buffer('m2p_aligned', torch.LongTensor(m2p_aligned))
+            self.register_buffer('mup_aligned', torch.LongTensor(mup_aligned))
+            
+            self.register_buffer('mu_both_aligned', torch.LongTensor(mu_both_aligned))
+            self.register_buffer('mu_both', torch.LongTensor(mu_both))
+            
+            self.register_buffer('multiplier_total_aligned',
+                                torch.tensor(multiplier_total_aligned).type(torch.get_default_dtype()))
+            
+            # Create indices for fast CG iterations:
+            m1_fast = (2*self.l1+1)*self.m1_aligned+self.m1p_aligned
+            m2_fast = (2*self.l2+1)*self.m2_aligned+self.m2p_aligned
+            mu_fast = (2*self.lambd+1)*self.mu_aligned+self.mup_aligned
 
-        sort_indices = torch.argsort(mu_fast)
+            sort_indices = torch.argsort(mu_fast)
 
-        self.m1_fast = m1_fast[sort_indices].to(device)
-        self.m2_fast = m2_fast[sort_indices].to(device)
-        self.mu_fast = mu_fast[sort_indices].to(device)
-        self.multipliers_fast = self.multiplier_total_aligned[sort_indices].to(device)
+            self.m1_fast = m1_fast[sort_indices].to(device)
+            self.m2_fast = m2_fast[sort_indices].to(device)
+            self.mu_fast = mu_fast[sort_indices].to(device)
+            self.multipliers_fast = self.multiplier_total_aligned[sort_indices].to(device)
+
+        if algorithm == "dense":
+
+            dense_transformation = torch.zeros((2*self.l1+1, 2*self.l2+1, 2*self.lambd+1), dtype=torch.get_default_dtype(), device=device)
+            for mu in range(0, 2 * self.lambd + 1):
+                for m1, m2, multiplier in self.transformation[mu]:
+                    dense_transformation[m1, m2, mu] = multiplier
+            self.dense_transformation = dense_transformation.reshape((2*self.l1+1)*(2*self.l2+1), 2*self.lambd+1)
                     
         
     def forward(self, X1, X2):
@@ -158,11 +169,23 @@ class WignerCombiningSingleUnrolled(torch.nn.Module):
         
         algorithm_now = self.algorithm
         
-        if algorithm_now == 'fast_cg':
+        if algorithm_now == 'fast_wigner':  # definitiely doesn't work for l>2
             X1 = X1.reshape(-1, 1, (2*self.l1+1)**2)
             X2 = X2.reshape(-1, 1, (2*self.l2+1)**2)
             result = sparse_accumulation.accumulate(X1, X2, self.mu_fast, (2*self.lambd+1)**2, self.m1_fast, self.m2_fast, self.multipliers_fast)
+            if torch.allclose(result, torch.zeros_like(result)):
+                raise ValueError(f"You probably overflowed the GPU's cache. l1={self.l1}, l2={self.l2}, lambda={self.lambd}")
             return result.reshape(-1, 2*self.lambd+1, 2*self.lambd+1)
+
+        if algorithm_now == 'dense':
+            product = torch.einsum("iab, icd -> iacbd", X1, X2)
+            result = product.reshape((product.shape[0], (2*self.l1+1)*(2*self.l2+1), (2*self.l1+1)*(2*self.l2+1)))
+            result = result @ self.dense_transformation
+            result = result.swapaxes(1, 2)
+            result = result @ self.dense_transformation
+            result = result.swapaxes(1, 2)
+
+            return result
         
         if algorithm_now == 'vectorized':
             contributions = X1[:, self.m1_aligned, self.m1p_aligned] * X2[:, self.m2_aligned, self.m2p_aligned] \
@@ -209,9 +232,10 @@ class WignerCombiningUnrolled(torch.nn.Module):
                 for lambd in range(abs(l1 - l2), min(l1 + l2, self.lambd_max) + 1):
                     sigma = sigma1 * sigma2 * (-1)**(l1+l2+lambd)                   
                     combiner = self.single_combiners['{}_{}_{}'.format(l1, l2, lambd)] 
+                    #print("Calling combiner on", '{}_{}_{}'.format(l1, l2, lambd))
                     if str(lambd) + "_" + str(sigma) not in result.keys():
                         result[str(lambd) + "_" + str(sigma)] = combiner(X1[key1], X2[key2])
                     else:
-                        result[str(lambd) + "_" + str(sigma)] +=  combiner(X1[key1], X2[key2])
+                        result[str(lambd) + "_" + str(sigma)] += combiner(X1[key1], X2[key2])
         return result
         

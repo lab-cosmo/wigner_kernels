@@ -8,10 +8,10 @@ from scipy.special import spherical_jn as j_l
 from scipy.special import spherical_in as i_l
 from scipy.integrate import quadrature
 
-from rascaline import SphericalExpansion
+import rascaline
 from datetime import datetime
-
-from tqdm import tqdm
+import json
+import os
 
 def Jn(r, n):
   return (sqrt(pi/(2*r))*jv(n+0.5,r))
@@ -89,20 +89,8 @@ def get_LE_calculator(l_max, n_max, a, nu, CS, l_nu, l_r):
             # print(r[i], R[i])
         return R
 
-    n_spline_points = 232
-    spline_x = np.linspace(0.0, a, n_spline_points)  # x values
-
     def function_for_splining(n, l, x):
         return get_LE_function_mollified_adaptive(n, l, x)
-
-    spline_f = []
-    print("Calculating radial basis values for splining")
-    for l in tqdm(range(l_max+1)):
-        for n in range(n_max):
-            spline_f_single = function_for_splining(n, l, spline_x)
-            spline_f.append(spline_f_single)
-    spline_f = np.array(spline_f).T
-    spline_f = spline_f.reshape(n_spline_points, l_max+1, n_max)  # f(x) values
 
     def function_for_splining_derivative(n, l, r):
         delta = 1e-6
@@ -111,35 +99,35 @@ def get_LE_calculator(l_max, n_max, a, nu, CS, l_nu, l_r):
         derivative_last = (function_for_splining(n, l, np.array([a])) - function_for_splining(n, l, np.array([a-delta/10.0]))) / (delta/10.0)
         return np.concatenate([derivative_at_zero, all_derivatives_except_first_and_last, derivative_last])
 
-    spline_df = []
-    print("Calculating radial basis derivatives for splining")
-    for l in tqdm(range(l_max+1)):
-        for n in range(n_max):
-            spline_df_single = function_for_splining_derivative(n, l, spline_x)
-            spline_df.append(spline_df_single)
-    spline_df = np.array(spline_df).T
-    spline_df = spline_df.reshape(n_spline_points, l_max+1, n_max)  # df/dx values
+    spline_path = f"splines/splines-{l_max}-{n_max}-{a}-{CS}-{l_r}.json"
+    if os.path.exists(spline_path):
+        with open(spline_path, 'r') as file:
+            spline_points = json.load(file)
+    else:
+        spline_points = rascaline.generate_splines(
+            function_for_splining,
+            function_for_splining_derivative,
+            n_max,
+            l_max,
+            a,
+            requested_accuracy = 1e-6
+        )
+        with open(spline_path, 'w') as file:
+            json.dump(spline_points, file)
 
-    with open(spline_file, "w") as file:
-        np.savetxt(file, spline_x.flatten(), newline=" ")
-        file.write("\n")
-
-    with open(spline_file, "a") as file:
-        np.savetxt(file, (1.0/(4.0*np.pi))*spline_f.flatten(), newline=" ")
-        file.write("\n")
-        np.savetxt(file, (1.0/(4.0*np.pi))*spline_df.flatten(), newline=" ")
-        file.write("\n")
+    print("Number of spline points:", len(spline_points))
 
     hypers_spherical_expansion = {
             "cutoff": a,
             "max_radial": n_max,
             "max_angular": l_max,
             "center_atom_weight": 0.0,
-            "radial_basis": {"Tabulated": {"file": spline_file}},
+            "radial_basis": {"TabulatedRadialIntegral": {"points": spline_points}},
             "atomic_gaussian_width": 100.0,
-            "cutoff_function": {"Step": {}},
+            "cutoff_function": {
+                "ShiftedCosine": {"width": 0.5},
+            },
         }
 
-    calculator = SphericalExpansion(**hypers_spherical_expansion)
+    calculator = rascaline.SphericalExpansion(**hypers_spherical_expansion)
     return calculator
-    # spherical_expansion_coefficients = calculator.compute(structures)
