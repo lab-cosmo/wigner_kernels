@@ -33,17 +33,17 @@ class WignerKernelFullIterations(torch.nn.Module):
             for nu in range(2, nu_max)
         }
         self.equivariant_iterators = torch.nn.ModuleDict(equivariant_iterators)
-        self.invariant_iterator = WignerCombiningUnrolled(clebsch.precomputed_, 0, algorithm = 'dense')
+        self.invariant_iterator = WignerCombiningUnrolled(clebsch.precomputed_, 1, algorithm = 'dense')
             
     def forward(self, X):
         result = []
         wig_nu = X
-        result.append(wig_nu['0_1'][:, 0, 0, None])  # nu = 1 kernel
+        result.append(wig_nu['1_1'][:, :, :, None])  # nu = 1 kernel
         for nu in range(2, self.nu_max):  # nu = 2 to nu = nu_max-1
             wig_nu = self.equivariant_iterators[str(nu)](wig_nu, X)
-            result.append(wig_nu['0_1'][:, 0, 0, None])
+            result.append(wig_nu['1_1'][:, :, :, None])
         wig_nu = self.invariant_iterator(wig_nu, X)  # only calculate invariants for nu = nu_max
-        result.append(wig_nu['0_1'][:, 0, 0, None])   
+        result.append(wig_nu['1_1'][:, :, :, None])   
         result = torch.cat(result, dim = -1)
         return result
 
@@ -57,20 +57,20 @@ class WignerKernelReducedCost(torch.nn.Module):
             }
         self.equivariant_iterators = torch.nn.ModuleDict(equivariant_iterators)
         invariant_iterators = {
-            str(nu): WignerCombiningUnrolled(clebsch.precomputed_, 0, algorithm = 'dense')
+            str(nu): WignerCombiningUnrolled(clebsch.precomputed_, 1, algorithm = 'dense')
             for nu in range(nu_max-nu_max//2+1, nu_max+1)
             }
         self.invariant_iterators = torch.nn.ModuleDict(invariant_iterators)
 
     def forward(self, X):
         equivariant_kernels = [X]
-        result = [equivariant_kernels[1-1]['0_1'][:, 0, 0, None]]
+        result = [equivariant_kernels[1-1]['1_1'][:, :, :, None]]
         for nu in range(2, self.nu_max+1):
             if (nu <= self.nu_max-self.nu_max//2): 
                 equivariant_kernels.append(self.equivariant_iterators[str(nu)](equivariant_kernels[-1], equivariant_kernels[0]))
-                result.append(equivariant_kernels[-1]['0_1'][:, 0, 0, None])
+                result.append(equivariant_kernels[-1]['1_1'][:, :, :, None])
             else:
-                result.append(self.invariant_iterators[str(nu)](equivariant_kernels[self.nu_max-self.nu_max//2-1], equivariant_kernels[nu-self.nu_max+self.nu_max//2-1])['0_1'][:, 0, 0, None])
+                result.append(self.invariant_iterators[str(nu)](equivariant_kernels[self.nu_max-self.nu_max//2-1], equivariant_kernels[nu-self.nu_max+self.nu_max//2-1])['1_1'][:, :, :, None])
         result = torch.cat(result, dim = -1)
         return result
 
@@ -87,7 +87,7 @@ def compute_kernel(model, first, second, batch_size = 1000, device = 'cpu'):
             [second.block(spherical_harmonics_l=0, species_center=center_species).samples["structure"] for center_species in second.keys["species_center"]]
             )))
     
-    wigner_invariants = torch.zeros((n_first, n_second, nu_max), device=device)
+    wigner_invariants = torch.zeros((n_first, n_second, 3, 3, nu_max), device=device)
     batch_size_each = int(np.sqrt(batch_size))  # A batch size for each of the two tensor maps involved.
   
     for center_species in all_species:
@@ -129,9 +129,9 @@ def compute_kernel(model, first, second, batch_size = 1000, device = 'cpu'):
                 for key in wigner_c.keys():
                     now[key] = wigner_c[key]
                 result_now = model(now)
-                result_now = result_now.reshape([dimension_1, dimension_2, nu_max])
+                result_now = result_now.reshape([dimension_1, dimension_2, 3, 3, nu_max])
 
-                temp = torch.zeros((wigner_invariants.shape[0], result_now.shape[1], nu_max), device = result_now.device)
+                temp = torch.zeros((wigner_invariants.shape[0], result_now.shape[1], 3, 3, nu_max), device = result_now.device)
                 temp.index_add_(dim=0, index=structures_first[idx_1_begin:idx_1_end], source=result_now)
                 wigner_invariants.index_add_(dim=1, index=structures_second[idx_2_begin:idx_2_end], source=temp)
 

@@ -37,7 +37,6 @@ def get_LE_calculator(l_max, n_max, a, nu, CS, l_nu, l_r):
 
     date_time = datetime.now()
     date_time = date_time.strftime("%m-%d-%Y-%H-%M-%S-%f")
-    spline_file = "splines/splines-" + date_time + ".txt"
     z_nl = get_spherical_bessel_zeros(l_max, n_max)
 
     def R_nl(n, l, r):
@@ -110,7 +109,7 @@ def get_LE_calculator(l_max, n_max, a, nu, CS, l_nu, l_r):
             n_max,
             l_max,
             a,
-            requested_accuracy = 1e-6
+            requested_accuracy = 1e-4
         )
         with open(spline_path, 'w') as file:
             json.dump(spline_points, file)

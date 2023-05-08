@@ -23,11 +23,17 @@ class ValidationCycle(torch.nn.Module):
         # print(self.coefficients.parametrizations.weight.original)
 
     def forward(self, K_train, y_train, K_val):
-        sigma = torch.exp(self.sigma_exponent*np.log(10.0))
-        n_train = K_train.shape[0] 
+        # Reshape kernels:
+        n_train = K_train.shape[0]
+        n_val = K_val.shape[0]
+        y_train = y_train.flatten()
+        K_train = K_train.swapaxes(1, 2).reshape(n_train*3, n_train*3, -1)
+        K_val = K_val.swapaxes(1, 2).reshape(n_val*3, n_train*3, -1)
+
+        sigma = torch.exp(self.sigma_exponent*np.log(10.0)) 
         c = torch.linalg.solve(
         self.coefficients(K_train).squeeze(dim = -1) +  # nu = 1, ..., 4 kernels
-        sigma * torch.eye(n_train, device = K_train.device)  # regularization
+        sigma * torch.eye(n_train*3, device = K_train.device)  # regularization
         , 
         y_train)
         y_val_predictions = self.coefficients(K_val).squeeze(dim = -1) @ c
