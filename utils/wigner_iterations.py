@@ -90,6 +90,9 @@ def precompute_transformation(clebsch, l1, l2, lambd):
     
     
 class WignerCombiningSingleUnrolled(torch.nn.Module):
+    """
+    Performs Wigner iterations for a single l1, l2, lambda.
+    """
     def __init__(self, clebsch, lambd, algorithm = 'vectorized', device = "cuda"):
         super(WignerCombiningSingleUnrolled, self).__init__()
         self.algorithm = algorithm
@@ -205,6 +208,9 @@ class WignerCombiningSingleUnrolled(torch.nn.Module):
             return result
     
 class WignerCombiningUnrolled(torch.nn.Module):
+    """
+    Performs Wigner iterations for all l1, l2, lambda.
+    """
     def __init__(self, clebsch, lambd_max, algorithm = 'vectorized'):
         super(WignerCombiningUnrolled, self).__init__()
         self.algorithm = algorithm
