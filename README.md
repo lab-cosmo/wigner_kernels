@@ -42,7 +42,7 @@ This will calculate a 10000x10000 chunk of the Wigner kernel matrix for the whol
 The inputs 2 and 3 refer to the location of the chunk within the Wigner kernel matrix. In this case, the output will be a dumped PyTorch
 tensor corresponding to all elements of the Wigner kernel matrix in rows 20000 to 30000 and columns 30000 to 40000. 
 
-Once all chunks in the upper triangular part of the matrix have been calculated (the kernel is symmetric), the fit can be executed
+Once all chunks in the upper triangular part of the matrix have been calculated (the kernel is symmetric), the fit can be carried out
 with `grid.py`. This script executes a grid search over the kernel mixing hyperparameters and it returns the test set error.
 
 `grid.py` is the only script that is supposed to run on CPU (preferrably with large memory), and it can be invoked as 
