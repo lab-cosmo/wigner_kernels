@@ -1,6 +1,6 @@
-cython
 numpy
+torch
 ase
 tqdm
-sklearn
 sympy
+rascaline @ https://github.com/Luthaf/rascaline/archive/87a361487b57345def5bad9cc668dc6f54b158f6.zip

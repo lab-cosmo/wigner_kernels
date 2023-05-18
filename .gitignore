@@ -1,16 +1,13 @@
 plots/
 s_gk
-*.out
 datasets/
 inputs/
 outputs/
 scripts/
 splines/
 test*
-large*
-*dipole*
 scan*
-*.json
+*.sh
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

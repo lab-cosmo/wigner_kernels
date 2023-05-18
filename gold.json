@@ -1,0 +1,19 @@
+{
+    "data type": "double",
+    "random seed": -1,
+    "batch size": 10000,
+    "conversion factor": "EV_TO_KCAL_MOL",
+    "target key": "elec. Free Energy [eV]",
+    "dataset path": "datasets/gold.xyz",
+    "n_test": 1000,
+    "n_train": -1,
+    "r_cut": 6.0, 
+    "nu_max": 6,
+    "L_max": 3,
+    "optimization target": "rmse",
+    "C": 0.6,
+    "L_NU": 0.0,
+    "L_R": 0.2,
+    "optimization mode": "kernel_exp",
+    "cg mode": "reduced"
+}
