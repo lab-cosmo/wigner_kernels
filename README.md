@@ -45,7 +45,7 @@ tensor corresponding to all elements of the Wigner kernel matrix in rows 20000 t
 Once all chunks in the upper triangular part of the matrix have been calculated (the kernel is symmetric), the fit can be executed
 with `grid.py`. This script executes a grid search over the kernel mixing hyperparameters and it returns the test set error.
 
-`grid.py` can be invoked as 
+`grid.py` is the only script that is supposed to run on CPU (preferrably with large memory), and it can be invoked as 
 
 `python grid.py 110000 0`
 
@@ -58,5 +58,7 @@ thereby changing the composition of the training and test sets.
 For reproducibility purposes, three examples of the outputs are provided for the `run_wk.py` script. These are
 
 `methane.out`, which is the output of `python run_wk.py methane.json 500 0`
+
 `gold.out`, which is the output of `python run_wk.py gold.json 500 0`
+
 `qm9.out`, which is the output of `python run_wk.py qm9.json 500 0`
