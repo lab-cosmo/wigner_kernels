@@ -33,7 +33,7 @@ CONVERSION_FACTOR = "NO_CONVERSION"
 print(f"conversion factor: {CONVERSION_FACTOR}")
 TARGET_KEY = "dipole_b3lyp"  # TARGET_KEY is "U0" for QM9, "elec. Free Energy [eV]" for gold, "energy" for methane
 print(f"target key: {TARGET_KEY}")
-DATASET_PATH = "datasets/qm9_traintest_dipoles.xyz"
+DATASET_PATH = "datasets/qm9_dipoles.xyz"
 print(f"dataset path: {DATASET_PATH}")
 n_test = 5000
 print(f"n_test: {n_test}")
