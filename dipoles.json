@@ -1,0 +1,19 @@
+{
+    "data type": "double",
+    "random seed": -1,
+    "batch size": 10000,
+    "conversion factor": "NO_CONVERSION",
+    "target key": "dipole_b3lyp",
+    "dataset path": "datasets/qm9_dipoles.xyz",
+    "n_test": 1000,
+    "n_train": -1,
+    "r_cut": 5.0, 
+    "nu_max": 4,
+    "L_max": 3,
+    "optimization target": "mae",
+    "C": 0.03,
+    "L_NU": 0.0,
+    "L_R": 1.0,
+    "optimization mode": "kernel_exp",
+    "cg mode": "reduced"
+}

@@ -125,11 +125,11 @@ test_train_kernel = torch.zeros((n_test, n_train, 3, 3, NU_MAX+1), device=DEVICE
 
 train_dipoles = [structure.info[TARGET_KEY] for structure in train_structures]
 train_dipoles = torch.tensor(np.array(train_dipoles), dtype = torch.get_default_dtype(), device = DEVICE) * CONVERSION_FACTOR
-#train_dipoles = train_dipoles[:, [1, 2, 0]]  # real spherical harmonics ordering: y, z, x
+train_dipoles = train_dipoles[:, [1, 2, 0]]  # real spherical harmonics ordering: y, z, x
 
 test_dipoles = [structure.info[TARGET_KEY] for structure in test_structures]
 test_dipoles = torch.tensor(np.array(test_dipoles), dtype = torch.get_default_dtype(), device = DEVICE) * CONVERSION_FACTOR
-#test_dipoles = test_dipoles[:, [1, 2, 0]]  # real spherical harmonics ordering: y, z, x
+test_dipoles = test_dipoles[:, [1, 2, 0]]  # real spherical harmonics ordering: y, z, x
 
 if L_NU == 0.0:
     """

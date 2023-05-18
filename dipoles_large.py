@@ -231,4 +231,4 @@ for iota in range(NU_MAX+1):
     print(f"nu = {iota}:")
     print(test_train_kernel[:2, :2, :, :, iota])
 
-torch.save((test_train_kernel.cpu())[:, :, :, :, 1:], f'../../../../scratch/izar/bigi/large_dipoles/wks_{i}_{j}.pt')
+torch.save((test_train_kernel.cpu())[:, :, :, :, 1:], f'wks_{i}_{j}.pt')
