@@ -4,6 +4,9 @@ from utils.wigner_iterations import WignerCombiningUnrolled
 import tqdm
 
 def initialize_wigner_single_l(first, second):
+    """
+    Evaluates the nu=1, single-l Wigner kernels as a scalar product of density expansion coefficients.
+    """
     first_b_size, first_m_size = first.shape[0], first.shape[1]
     second_b_size, second_m_size = second.shape[0], second.shape[1]
     first = first.reshape([-1, first.shape[2]])
@@ -13,6 +16,9 @@ def initialize_wigner_single_l(first, second):
     return result.transpose(1, 2)
 
 def initialize_wigner_single_species_batched(first, second, center_species, idx_1, idx_2):
+    """
+    Evaluates the nu=1 Wigner kernels for a single species.
+    """
     idx_1_begin, idx_1_end = idx_1
     idx_2_begin, idx_2_end = idx_2
     lmax = np.max(first.keys["spherical_harmonics_l"])
@@ -25,6 +31,9 @@ def initialize_wigner_single_species_batched(first, second, center_species, idx_
     return result
 
 class WignerKernelFullIterations(torch.nn.Module):
+    """
+    Performs full Wigner iterations.
+    """
     def __init__(self, clebsch, lambda_max, nu_max):
         super(WignerKernelFullIterations, self).__init__()
         self.nu_max = nu_max
@@ -48,6 +57,10 @@ class WignerKernelFullIterations(torch.nn.Module):
         return result
 
 class WignerKernelReducedCost(torch.nn.Module):
+    """
+    Calculates Wigner kernels, but it calculates equivariant kernels only up to approx.
+    nu/2, and then only kernels up to lambda=1.
+    """
     def __init__(self, clebsch, lambda_max, nu_max):
         super(WignerKernelReducedCost, self).__init__()
         self.nu_max = nu_max
@@ -75,6 +88,9 @@ class WignerKernelReducedCost(torch.nn.Module):
         return result
 
 def compute_kernel(model, first, second, batch_size = 1000, device = 'cpu'):
+    """
+    Concatenates lambda=1, sigma=0 Wigner kernels of different body orders and sums them over atoms in the same structure.
+    """
     all_species = np.unique(np.concatenate([first.keys["species_center"], second.keys["species_center"]]))
     nu_max = model.nu_max
 
