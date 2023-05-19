@@ -89,7 +89,7 @@ class WignerKernelReducedCost(torch.nn.Module):
 
 def compute_kernel(model, first, second, batch_size = 1000, device = 'cpu'):
     """
-    Concatenates Wigner kernels of different body orders and sums them over atoms in the same structure.
+    Concatenates invariant Wigner kernels of different body orders and sums them over atoms in the same structure.
     """
     all_species = np.unique(np.concatenate([first.keys["species_center"], second.keys["species_center"]]))
     nu_max = model.nu_max
