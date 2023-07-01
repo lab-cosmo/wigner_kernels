@@ -11,9 +11,9 @@
     "nu_max": 4,
     "L_max": 3,
     "optimization target": "mae",
-    "C": 0.006,
+    "C": 0.004,
     "L_NU": 0.0,
-    "L_R": 1.2,
+    "L_R": 1.4,
     "optimization mode": "kernel_exp",
     "cg mode": "reduced"
 }

@@ -79,7 +79,7 @@ def get_composition_features(frames, all_species):
 
 def move_to_torch(rust_map: TensorMap, device: str) -> TensorMap:
     torch_blocks = []
-    for _, block in rust_map:
+    for _, block in rust_map.items():
         torch_block = TensorBlock(
             values=torch.tensor(block.values, dtype=torch.get_default_dtype(), device=device),
             samples=block.samples,

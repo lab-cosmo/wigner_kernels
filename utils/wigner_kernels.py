@@ -104,11 +104,11 @@ def compute_kernel(model, first, second, batch_size = 1000, device = 'cpu'):
 
     n_first = len(np.unique(
         np.concatenate(
-            [first.block(spherical_harmonics_l=0, species_center=center_species).samples["structure"] for center_species in np.unique(first.keys["species_center"])]
+            [first.block(spherical_harmonics_l=0, species_center=center_species).samples["structure"] for center_species in np.unique(first.keys["species_center"].values[:, 0])]
             )))
     n_second = len(np.unique(
         np.concatenate(
-            [second.block(spherical_harmonics_l=0, species_center=center_species).samples["structure"] for center_species in second.keys["species_center"]]
+            [second.block(spherical_harmonics_l=0, species_center=center_species).samples["structure"] for center_species in second.keys["species_center"].values[:, 0]]
             )))
     
     wigner_invariants = torch.zeros((n_first, n_second, nu_max), device=device)
@@ -118,12 +118,12 @@ def compute_kernel(model, first, second, batch_size = 1000, device = 'cpu'):
         # if center_species == 1: continue  # UNCOMMENT FOR METHANE DATASET C-ONLY VERSION
         print(f"     Calculating kernels for center species {center_species}", flush = True)
         try:
-            structures_first = torch.tensor(first.block(spherical_harmonics_l=0, species_center=center_species).samples["structure"], dtype=torch.long, device=wigner_invariants.device)
+            structures_first = torch.tensor(first.block(spherical_harmonics_l=0, species_center=center_species).samples["structure"].values[:, 0], dtype=torch.long, device=wigner_invariants.device)
         except ValueError:
             print("First does not contain the above center species")
             continue
         try:
-            structures_second = torch.tensor(second.block(spherical_harmonics_l=0, species_center=center_species).samples["structure"], dtype=torch.long, device=wigner_invariants.device)
+            structures_second = torch.tensor(second.block(spherical_harmonics_l=0, species_center=center_species).samples["structure"].values[:, 0], dtype=torch.long, device=wigner_invariants.device)
         except ValueError:
             print("Second does not contain the above center species")
             continue
