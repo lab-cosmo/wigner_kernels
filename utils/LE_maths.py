@@ -85,7 +85,10 @@ def get_LE_calculator(l_max, n_max, a, nu, CS, l_nu, l_r):
         # Calculates a mollified (but with adaptive sigma) LE radial basis function for a 1D array of values r.
         R = np.zeros_like(r)
         for i in range(r.shape[0]):
-            R[i] = evaluate_LE_function_mollified_adaptive(n, l, r[i])*np.exp(-l_r*r[i])
+            if r[i] < 0.8:  # Reduce computational cost
+                R[i] = evaluate_LE_function_mollified_adaptive(n, l, 0.8)*np.exp(-l_r*0.8)
+            else:
+                R[i] = evaluate_LE_function_mollified_adaptive(n, l, r[i])*np.exp(-l_r*r[i])
             # print(r[i], R[i])
         return R
 
@@ -99,7 +102,7 @@ def get_LE_calculator(l_max, n_max, a, nu, CS, l_nu, l_r):
         derivative_last = (function_for_splining(n, l, np.array([a])) - function_for_splining(n, l, np.array([a-delta/10.0]))) / (delta/10.0)
         return np.concatenate([derivative_at_zero, all_derivatives_except_first_and_last, derivative_last])
 
-    spline_path = f"splines/splines-{l_max}-{n_max}-{a}-{CS}-{l_r}.json"
+    spline_path = f"splines/splines-{l_max}-{n_max}-{a}-{CS}-{l_r}-normalized4.json"
     if os.path.exists(spline_path):
         with open(spline_path, 'r') as file:
             spline_points = json.load(file)
@@ -110,7 +113,7 @@ def get_LE_calculator(l_max, n_max, a, nu, CS, l_nu, l_r):
             n_max,
             l_max,
             a,
-            requested_accuracy = 1e-6
+            requested_accuracy = 1e-3
         )
         with open(spline_path, 'w') as file:
             json.dump(spline_points, file)

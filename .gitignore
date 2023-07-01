@@ -8,6 +8,8 @@ splines/
 test*
 scan*
 *.sh
+*.json
+*.out
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

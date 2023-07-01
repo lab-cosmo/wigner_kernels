@@ -88,6 +88,7 @@ EV_TO_KCALMOL = HARTREE_TO_KCALMOL/HARTREE_TO_EV
 
 conversions = {}
 conversions["HARTREE_TO_EV"] = 27.211386245988
+conversions["NO_CONVERSION"] = 1.0
 conversions["HARTREE_TO_KCAL_MOL"] = 627.509608030593
 conversions["EV_TO_KCAL_MOL"] = conversions["HARTREE_TO_KCAL_MOL"]/conversions["HARTREE_TO_EV"]
 conversions["KCAL_MOL_TO_MEV"] = 0.0433641153087705*1000.0
@@ -100,10 +101,15 @@ assert n_train % n_validation_splits == 0
 n_validation = n_train // n_validation_splits
 n_train_sub = n_train - n_validation
 
-test_slice = str(0) + ":" + str(n_test)
-train_slice = str(n_test) + ":" + str(n_test+n_train)
+if "rmd17" in DATASET_PATH:
+    train_slice = str(0) + ":" + str(n_train)
+    test_slice = str(0) + ":" + str(n_test)
+else:
+    test_slice = str(0) + ":" + str(n_test)
+    train_slice = str(n_test) + ":" + str(n_test+n_train)
 
 DEVICE = ('cuda' if torch.cuda.is_available() else "cpu")
+# DEVICE = "cpu"
 clebsch = ClebschGordan(L_MAX)
 
 print("Gaussian smoothing map for r = 1, 2, 3, 4 A:")
@@ -179,9 +185,9 @@ if L_NU == 0.0:
     print("Expansion coefficients done", flush = True)
 
     if cg_mode == "full":
-        model = WignerKernelFullIterations(clebsch, L_MAX, NU_MAX)
+        model = WignerKernelFullIterations(clebsch, L_MAX, NU_MAX, DEVICE)
     else:
-        model = WignerKernelReducedCost(clebsch, L_MAX, NU_MAX)
+        model = WignerKernelReducedCost(clebsch, L_MAX, NU_MAX, DEVICE)
     model = model.to(DEVICE)
 
     print("Computing train-train-kernels", flush = True)
@@ -241,9 +247,9 @@ else:
         # Kernel computation
 
         if cg_mode == "full":
-            model = WignerKernelFullIterations(clebsch, L_MAX, nu)
+            model = WignerKernelFullIterations(clebsch, L_MAX, nu, DEVICE)
         else:
-            model = WignerKernelReducedCost(clebsch, L_MAX, nu)
+            model = WignerKernelReducedCost(clebsch, L_MAX, nu, DEVICE)
         model = model.to(DEVICE)
 
         print("Computing train-train-kernels", flush = True)
@@ -325,14 +331,14 @@ def validation_loss_for_global_optimization(x):
 
 if optimization_mode == "kernel_exp":
     
-    bounds = [(0.0, 12.0), (0.0, 10.0), (1.0, 15.0)]
+    bounds = [(0.0, 12.0), (0.0, 100.0), (1.0, 15.0)]
     x0 = np.array([1.0, 0.5, 5])
     solution = sp.optimize.dual_annealing(validation_loss_for_global_optimization, bounds = bounds, x0 = x0, no_local_search = True)
     print(solution.x)
 
     if solution.x[0] < bounds[0][0]+0.2 or solution.x[0] > bounds[0][1]-0.2:
         print("solution[0] hit a boundary")
-    if solution.x[1] < bounds[1][0]+0.2 or solution.x[1] > bounds[1][1]-0.2:
+    if solution.x[1] > bounds[1][1]-0.2:
         print("solution[1] hit a boundary")
     if solution.x[2] < bounds[2][0]+0.2 or solution.x[2] > bounds[2][1]-0.2:
         print("solution[2] hit a boundary")

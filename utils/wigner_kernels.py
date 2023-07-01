@@ -34,15 +34,19 @@ class WignerKernelFullIterations(torch.nn.Module):
     """
     Performs full Wigner iterations.
     """
-    def __init__(self, clebsch, lambda_max, nu_max):
+    def __init__(self, clebsch, lambda_max, nu_max, device):
         super(WignerKernelFullIterations, self).__init__()
         self.nu_max = nu_max
         equivariant_iterators = {
-            str(nu) : WignerCombiningUnrolled(clebsch.precomputed_, lambda_max, algorithm = 'dense')  
+            str(nu) : WignerCombiningUnrolled(clebsch.precomputed_, lambda_max,
+            algorithm = 'dense' if device == "cuda" else "fast_wigner",
+            device = device)  
             for nu in range(2, nu_max)
         }
         self.equivariant_iterators = torch.nn.ModuleDict(equivariant_iterators)
-        self.invariant_iterator = WignerCombiningUnrolled(clebsch.precomputed_, 0, algorithm = 'dense')
+        self.invariant_iterator = WignerCombiningUnrolled(clebsch.precomputed_, 0,
+        algorithm = 'dense' if device == "cuda" else "fast_wigner",
+        device = device)
             
     def forward(self, X):
         result = []
@@ -61,16 +65,20 @@ class WignerKernelReducedCost(torch.nn.Module):
     Calculates Wigner kernels, but it calculates equivariant kernels only up to approx.
     nu/2, and then only invariant kernels.
     """
-    def __init__(self, clebsch, lambda_max, nu_max):
+    def __init__(self, clebsch, lambda_max, nu_max, device):
         super(WignerKernelReducedCost, self).__init__()
         self.nu_max = nu_max
         equivariant_iterators = {
-            str(nu): WignerCombiningUnrolled(clebsch.precomputed_, lambda_max, algorithm = 'dense') 
+            str(nu): WignerCombiningUnrolled(clebsch.precomputed_, lambda_max, 
+            algorithm = 'dense' if device == "cuda" else "fast_wigner", 
+            device = device) 
             for nu in range(2, nu_max-nu_max//2+1)
             }
         self.equivariant_iterators = torch.nn.ModuleDict(equivariant_iterators)
         invariant_iterators = {
-            str(nu): WignerCombiningUnrolled(clebsch.precomputed_, 0, algorithm = 'dense')
+            str(nu): WignerCombiningUnrolled(clebsch.precomputed_, 0,
+            algorithm = 'dense' if device == "cuda" else "fast_wigner",
+            device = device)
             for nu in range(nu_max-nu_max//2+1, nu_max+1)
             }
         self.invariant_iterators = torch.nn.ModuleDict(invariant_iterators)

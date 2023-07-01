@@ -176,7 +176,7 @@ class WignerCombiningSingleUnrolled(torch.nn.Module):
             X1 = X1.reshape(-1, 1, (2*self.l1+1)**2)
             X2 = X2.reshape(-1, 1, (2*self.l2+1)**2)
             result = sparse_accumulation.accumulate(X1, X2, self.mu_fast, (2*self.lambd+1)**2, self.m1_fast, self.m2_fast, self.multipliers_fast)
-            if torch.allclose(result, torch.zeros_like(result)):
+            if torch.allclose(result, torch.zeros_like(result)) and device.type == "cuda":
                 raise ValueError(f"You probably overflowed the GPU's cache. l1={self.l1}, l2={self.l2}, lambda={self.lambd}")
             return result.reshape(-1, 2*self.lambd+1, 2*self.lambd+1)
 
@@ -211,9 +211,10 @@ class WignerCombiningUnrolled(torch.nn.Module):
     """
     Performs a Wigner iteration for all l1, l2, lambda within a batch of chemical environments.
     """
-    def __init__(self, clebsch, lambd_max, algorithm = 'vectorized'):
+    def __init__(self, clebsch, lambd_max, algorithm = 'vectorized', device = 'cuda'):
         super(WignerCombiningUnrolled, self).__init__()
         self.algorithm = algorithm
+        self.device = device
         self.lambd_max = lambd_max
         self.single_combiners = torch.nn.ModuleDict()
         for l1 in range(clebsch.shape[0]):
@@ -225,7 +226,7 @@ class WignerCombiningUnrolled(torch.nn.Module):
                         raise ValueError("insufficient lambda max in precomputed Clebsch Gordan coefficients")
 
                     self.single_combiners[key] = WignerCombiningSingleUnrolled(
-                        clebsch[l1, l2, lambd, :2 * l1 + 1, :2 * l2 + 1], lambd, algorithm = self.algorithm)
+                        clebsch[l1, l2, lambd, :2 * l1 + 1, :2 * l2 + 1], lambd, algorithm = self.algorithm, device = self.device)
                 
     def forward(self, X1, X2):
         result = {}
