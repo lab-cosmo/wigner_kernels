@@ -245,4 +245,3 @@ class WignerCombiningUnrolled(torch.nn.Module):
                     else:
                         result[str(lambd) + "_" + str(sigma)] += combiner(X1[key1], X2[key2])
         return result
-        

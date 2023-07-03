@@ -24,7 +24,7 @@ def initialize_wigner_single_species_batched(first, second, center_species, idx_
     lmax = np.max(first.keys["spherical_harmonics_l"])
     result = {}
     for l in range(lmax+1):
-        result[str(l) + "_" + str(1)] = initialize_wigner_single_l(
+        result[str(l) + "_" + str(1)] = ((8.0*np.pi**2)/(2*l+1))*initialize_wigner_single_l(
                 first.block(spherical_harmonics_l=l, species_center=center_species).values[idx_1_begin:idx_1_end, :, :], 
                 second.block(spherical_harmonics_l=l, species_center=center_species).values[idx_2_begin:idx_2_end, :, :]
                 )
