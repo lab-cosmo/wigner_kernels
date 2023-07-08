@@ -114,7 +114,7 @@ clebsch = ClebschGordan(L_MAX)
 
 print("Gaussian smoothing map for r = 1, 2, 3, 4 A:")
 for nu in range(1, NU_MAX+1):
-    print(f"nu = {nu}: {C*np.exp(L_NU*nu+L_R*1)} {C*np.exp(L_NU*nu+L_R*2)} {C*np.exp(L_NU*nu+L_R*3)} {C*np.exp(L_NU*nu+L_R*4)}")
+    print(f"nu = {nu}: {C*np.exp(L_NU*nu+1.0/L_R)} {C*np.exp(L_NU*nu+2.0/L_R)} {C*np.exp(L_NU*nu+3.0/L_R)} {C*np.exp(L_NU*nu+4.0/L_R)}")
 
 train_structures, test_structures = get_dataset_slice(DATASET_PATH, train_slice, test_slice)
 all_species = np.sort(np.unique(np.concatenate([train_structure.numbers for train_structure in train_structures] + [test_structure.numbers for test_structure in test_structures])))

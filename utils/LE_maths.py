@@ -63,7 +63,7 @@ def get_LE_calculator(l_max, n_max, a, nu, CS, l_nu, l_r):
 
     def sigma(r):  
         # The function that determines how sigma changes as a function of r.
-        sigma = CS*np.exp(l_nu*nu+l_r*r)
+        sigma = CS*np.exp(l_nu*nu+r/l_r)
         return sigma
 
     from fortran import sbessi
@@ -77,7 +77,7 @@ def get_LE_calculator(l_max, n_max, a, nu, CS, l_nu, l_r):
         # Calculates a mollified (but with adaptive sigma) LE radial basis function for a signle value of r.
         c = 1.0/(2.0*sigma(r)**2)
         def function_to_integrate(x):
-            return 4.0 * np.pi * x**2 * get_LE_function(n, l, x) * np.exp(-c*(x-r)**2) * exp_i_l(l, 2.0*c*x*r) * (1.0/(np.sqrt(2*np.pi)*sigma(r)))**3
+            return 4.0 * np.pi * x**2 * get_LE_function(n, l, x) * np.exp(-c*(x-r)**2) * exp_i_l(l, 2.0*c*x*r) * (1.0/(np.sqrt(2*np.pi)*sigma(r)))**3 # * (1.0/(np.pi*sigma(r)**2))**(3/4) #
         integral, _ = sp.integrate.quadrature(function_to_integrate, 0.0, a, miniter=100, maxiter=10000)
         return integral
 
@@ -86,9 +86,9 @@ def get_LE_calculator(l_max, n_max, a, nu, CS, l_nu, l_r):
         R = np.zeros_like(r)
         for i in range(r.shape[0]):
             if r[i] < 0.8:  # Reduce computational cost
-                R[i] = evaluate_LE_function_mollified_adaptive(n, l, 0.8)#*np.exp(-l_r*0.8)
+                R[i] = evaluate_LE_function_mollified_adaptive(n, l, 0.8)
             else:
-                R[i] = evaluate_LE_function_mollified_adaptive(n, l, r[i])#*np.exp(-l_r*r[i])
+                R[i] = evaluate_LE_function_mollified_adaptive(n, l, r[i])
             # print(r[i], R[i])
         return R
 
@@ -102,7 +102,7 @@ def get_LE_calculator(l_max, n_max, a, nu, CS, l_nu, l_r):
         derivative_last = (function_for_splining(n, l, np.array([a])) - function_for_splining(n, l, np.array([a-delta/10.0]))) / (delta/10.0)
         return np.concatenate([derivative_at_zero, all_derivatives_except_first_and_last, derivative_last])
 
-    spline_path = f"splines/splines-{l_max}-{n_max}-{a}-{CS}-{l_r}-normalized5.json"
+    spline_path = f"splines/splines-{l_max}-{n_max}-{a}-{CS}-{l_r}-normalized5.json"  # 5 is l1 norm, 6 is with l2 norm
     if os.path.exists(spline_path):
         with open(spline_path, 'r') as file:
             spline_points = json.load(file)
