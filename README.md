@@ -4,7 +4,8 @@ This a collection of programs to benchmark Wigner kernels. We recommend running 
 
 ## Reproducing the published results
 
-The code on the `main` branch was modified after the results in the paper were generated, while the example output files were not regenerated. Consequently, the current `main` branch does not reproduce the errors reported in the bundled `.out` files or in the paper.
+The code on the `main` branch was modified after the results in the paper were generated. Consequently, the current `main` branch does not reproduce the errors reported in the paper
+(or in the bundled `.out` files).
 
 The source of truth for the published results is the [Zenodo archive](https://doi.org/10.5281/zenodo.7952084). The energy calculations for QM9, random methane, and gold clusters correspond to commit [`a6c8b3d`](https://github.com/lab-cosmo/wigner_kernels/commit/a6c8b3dccd37cb25453780e5f50eb3c9bda844f6). The QM9 dipole calculations correspond to commit [`5a53bb6`](https://github.com/lab-cosmo/wigner_kernels/commit/5a53bb6c54cc608a339e5311bca1ce3cfea0163b) on the `dipoles` branch.
 
